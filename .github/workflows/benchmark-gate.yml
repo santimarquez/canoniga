@@ -1,0 +1,93 @@
+name: Benchmark Gate Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  benchmark-gate-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Run regression query gate
+        run: make test-regression-queries
+
+      - name: Build deterministic gate fixtures
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from als_intel.store import EvidenceStore
+
+          out = Path("ci_artifacts")
+          templates = out / "benchmark_templates"
+          templates.mkdir(parents=True, exist_ok=True)
+
+          db_path = out / "als_intel_ci.sqlite"
+          store = EvidenceStore(db_path)
+          store.init_db()
+          store.register_model(
+              model_id="ci-candidate-model",
+              base_model="llama3.1:8b",
+              adapter_path="/tmp/ci-candidate-model",
+              dataset_manifest_path="/tmp/manifest.json",
+              training_config={"epochs": 1},
+              metrics={"val_loss_estimate": 0.45, "train_rows": 500},
+              status="trained",
+              notes="ci benchmark gate fixture"
+          )
+
+          families = ["grounding", "contradiction", "uncertainty", "actionability"]
+          for family in families:
+              rows = []
+              for idx in range(1, 7):
+                  rows.append(
+                      {
+                          "prompt": f"CI benchmark prompt {family} {idx}",
+                          "expected": {"must_include": ["citation", "scope", "uncertainty"]},
+                          "metadata": {
+                              "family": family,
+                              "claim_id": f"CI_{family.upper()}_{idx}",
+                              "contradiction_count": 1 if family == "contradiction" else 0,
+                              "reliability_score": 0.65,
+                          },
+                      }
+                  )
+              (templates / f"template_{family}.jsonl").write_text(
+                  "\n".join(json.dumps(row, ensure_ascii=True) for row in rows),
+                  encoding="utf-8",
+              )
+          PY
+
+      - name: Run benchmark gate
+        run: |
+          als-intel benchmark-gate \
+            --db ci_artifacts/als_intel_ci.sqlite \
+            --candidate-model-id ci-candidate-model \
+            --input-path ci_artifacts/benchmark_templates \
+            --output-dir ci_artifacts/benchmark_gate \
+            --policy-file config/benchmark_gate_policy.json
+
+      - name: Upload gate artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-gate-smoke-artifacts
+          path: ci_artifacts/benchmark_gate

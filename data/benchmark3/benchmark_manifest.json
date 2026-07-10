@@ -1,0 +1,27 @@
+{
+  "created_at": "2026-06-23T22:20:57.668440+00:00",
+  "dataset_manifest_path": "C:\\Users\\santy\\repos\\canoniga\\data\\finetune_train2\\manifest.json",
+  "benchmark_size": 2,
+  "min_examples": 2,
+  "max_examples": 50,
+  "source_counts": {
+    "val_source_rows": 2,
+    "train_source_rows": 1
+  },
+  "files": {
+    "benchmark": "data\\benchmark3\\benchmark.jsonl",
+    "manifest": "data\\benchmark3\\benchmark_manifest.json",
+    "families": {
+      "grounding": "data\\benchmark3\\benchmark_grounding.jsonl",
+      "contradiction": "data\\benchmark3\\benchmark_contradiction.jsonl",
+      "uncertainty": "data\\benchmark3\\benchmark_uncertainty.jsonl",
+      "actionability": "data\\benchmark3\\benchmark_actionability.jsonl"
+    }
+  },
+  "family_counts": {
+    "grounding": 2,
+    "contradiction": 2,
+    "uncertainty": 2,
+    "actionability": 2
+  }
+}

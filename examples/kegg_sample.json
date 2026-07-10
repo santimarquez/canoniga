@@ -1,0 +1,16 @@
+[
+  {
+    "source": "kegg",
+    "source_id": "hsa05014",
+    "title": "Amyotrophic lateral sclerosis - Homo sapiens (human)",
+    "year": 2000,
+    "journal": "KEGG"
+  },
+  {
+    "source": "kegg",
+    "source_id": "hsa04080",
+    "title": "Neuroactive ligand-receptor interaction - Homo sapiens (human)",
+    "year": 2000,
+    "journal": "KEGG"
+  }
+]

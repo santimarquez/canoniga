@@ -1,0 +1,1 @@
+{"prompt": "Compare supporting and contradicting ALS evidence and explain disagreement.", "expected": {"must_include": ["at least one supporting citation", "at least one contradicting citation", "clear conflict explanation"]}, "metadata": {"family": "contradiction", "claim_id": "REPLACE_WITH_CLAIM_ID", "contradiction_count": 1, "reliability_score": 0.65}}

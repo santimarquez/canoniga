@@ -1,0 +1,16 @@
+[
+  {
+    "source": "open_targets",
+    "source_id": "ENSG00000157764",
+    "title": "SOD1 target association evidence (target)",
+    "year": 2000,
+    "journal": "Open Targets"
+  },
+  {
+    "source": "open_targets",
+    "source_id": "EFO_0000253",
+    "title": "Amyotrophic lateral sclerosis disease evidence (disease)",
+    "year": 2000,
+    "journal": "Open Targets"
+  }
+]

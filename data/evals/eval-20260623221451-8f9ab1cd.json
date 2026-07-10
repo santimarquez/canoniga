@@ -1,0 +1,33 @@
+{
+  "evaluation_id": "eval-20260623221451-8f9ab1cd",
+  "candidate_model_id": "als-smoke-model",
+  "baseline_model_id": "",
+  "status": "failed",
+  "metrics": {
+    "benchmark_size": 0,
+    "benchmark_val_file": "C:\\Users\\santy\\repos\\canoniga\\data\\finetune_train\\val.jsonl",
+    "citation_presence_rate": 0.0,
+    "contradiction_coverage": 0.0,
+    "candidate_quality": 0.3578,
+    "baseline_quality": null,
+    "grounding_score": 0.1252,
+    "contradiction_handling_score": 0.1431,
+    "uncertainty_calibration_score": 0.2683,
+    "hallucination_risk": 0.8748,
+    "overall_score": 0.1583,
+    "improvement_over_baseline": null
+  },
+  "gate": {
+    "passed": false,
+    "min_grounding_score": 0.55,
+    "max_hallucination_risk": 0.45,
+    "min_overall_score": 0.55,
+    "min_improvement_over_baseline": 0.02,
+    "fail_reasons": [
+      "grounding_score_below_threshold(0.1252 < 0.5500)",
+      "hallucination_risk_above_threshold(0.8748 > 0.4500)",
+      "overall_score_below_threshold(0.1583 < 0.5500)"
+    ]
+  },
+  "benchmark_manifest_path": "C:\\Users\\santy\\repos\\canoniga\\data\\finetune_train\\manifest.json"
+}

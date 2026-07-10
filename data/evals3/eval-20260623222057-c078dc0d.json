@@ -1,0 +1,48 @@
+{
+  "evaluation_id": "eval-20260623222057-c078dc0d",
+  "candidate_model_id": "als-smoke-model",
+  "baseline_model_id": "",
+  "status": "passed",
+  "metrics": {
+    "benchmark_size": 2,
+    "benchmark_val_file": "C:\\Users\\santy\\repos\\canoniga\\data\\benchmark3\\benchmark.jsonl",
+    "citation_presence_rate": 1.0,
+    "contradiction_coverage": 1.0,
+    "candidate_quality": 0.3578,
+    "baseline_quality": null,
+    "grounding_score": 0.7752,
+    "contradiction_handling_score": 0.7431,
+    "uncertainty_calibration_score": 0.2733,
+    "hallucination_risk": 0.2248,
+    "overall_score": 0.6668,
+    "improvement_over_baseline": null,
+    "family_scores": {
+      "grounding": 1.0,
+      "contradiction": 1.0,
+      "uncertainty": 1.0,
+      "actionability": 1.0
+    },
+    "family_counts": {
+      "grounding": 2,
+      "contradiction": 2,
+      "uncertainty": 2,
+      "actionability": 2
+    }
+  },
+  "gate": {
+    "passed": true,
+    "min_grounding_score": 0.0,
+    "max_hallucination_risk": 1.0,
+    "min_overall_score": 0.0,
+    "min_improvement_over_baseline": 0.02,
+    "min_family_examples": 1,
+    "family_thresholds": {
+      "grounding": 0.0,
+      "contradiction": 0.0,
+      "uncertainty": 0.0,
+      "actionability": 0.0
+    },
+    "fail_reasons": []
+  },
+  "benchmark_manifest_path": "C:\\Users\\santy\\repos\\canoniga\\data\\benchmark3\\benchmark_manifest.json"
+}

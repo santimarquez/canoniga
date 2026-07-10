@@ -1,0 +1,16 @@
+[
+  {
+    "source": "chembl",
+    "source_id": "CHEMBL25",
+    "title": "Riluzole",
+    "year": 1995,
+    "journal": "ChEMBL"
+  },
+  {
+    "source": "chembl",
+    "source_id": "CHEMBL1201587",
+    "title": "Edaravone",
+    "year": 2015,
+    "journal": "ChEMBL"
+  }
+]

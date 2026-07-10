@@ -1,0 +1,11 @@
+services:
+  web:
+    command: >-
+      sh -c "python -m pip install --quiet watchfiles &&
+      watchfiles --filter python 'python -m als_intel.webui' /app/src /app/config /app/examples"
+    environment:
+      ALS_MAGIC_LINK_RATE_LIMIT_COUNT: 20
+      ALS_MAGIC_LINK_RATE_LIMIT_WINDOW_SECONDS: 600
+      ALS_MAGIC_LINK_RATE_LIMIT_IP_COUNT: 100
+    volumes:
+      - ./:/app

@@ -1,0 +1,16 @@
+[
+  {
+    "source": "arrayexpress",
+    "source_id": "E-MTAB-12345",
+    "title": "RNA-seq profiling of ALS patient-derived neurons",
+    "year": 2022,
+    "journal": "ArrayExpress"
+  },
+  {
+    "source": "arrayexpress",
+    "source_id": "E-GEOD-98765",
+    "title": "ALS transcriptomic atlas across disease stages",
+    "year": 2019,
+    "journal": "ArrayExpress"
+  }
+]

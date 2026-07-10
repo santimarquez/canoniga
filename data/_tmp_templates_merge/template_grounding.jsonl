@@ -1,0 +1,1 @@
+{"prompt": "Summarize the ALS claim using only cited evidence.", "expected": {"must_include": ["explicit claim id citation", "no unsupported mechanism statements"]}, "metadata": {"family": "grounding", "claim_id": "REPLACE_WITH_CLAIM_ID", "contradiction_count": 0, "reliability_score": 0.7}}

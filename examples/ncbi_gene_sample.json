@@ -1,0 +1,16 @@
+[
+  {
+    "source": "ncbi_gene",
+    "source_id": "4843",
+    "title": "SOD1: superoxide dismutase 1 linked to ALS susceptibility pathways",
+    "year": 2000,
+    "journal": "NCBI Gene"
+  },
+  {
+    "source": "ncbi_gene",
+    "source_id": "3978",
+    "title": "FUS: RNA processing gene associated with familial ALS forms",
+    "year": 2000,
+    "journal": "NCBI Gene"
+  }
+]

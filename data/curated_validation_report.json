@@ -1,0 +1,35 @@
+{
+  "input_path": "benchmarks\\curated",
+  "files_checked": 4,
+  "rows_checked": 20,
+  "valid_rows": 20,
+  "invalid_rows": 0,
+  "status": "ok",
+  "per_file": [
+    {
+      "file": "benchmarks\\curated\\template_actionability.jsonl",
+      "rows": 5,
+      "valid_rows": 5,
+      "invalid_rows": 0
+    },
+    {
+      "file": "benchmarks\\curated\\template_contradiction.jsonl",
+      "rows": 5,
+      "valid_rows": 5,
+      "invalid_rows": 0
+    },
+    {
+      "file": "benchmarks\\curated\\template_grounding.jsonl",
+      "rows": 5,
+      "valid_rows": 5,
+      "invalid_rows": 0
+    },
+    {
+      "file": "benchmarks\\curated\\template_uncertainty.jsonl",
+      "rows": 5,
+      "valid_rows": 5,
+      "invalid_rows": 0
+    }
+  ],
+  "errors": []
+}

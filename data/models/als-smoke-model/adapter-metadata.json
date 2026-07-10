@@ -1,0 +1,7 @@
+{
+  "mode": "simulated",
+  "base_model": "llama3.1:8b",
+  "created_at": "2026-06-23T22:12:18.236754+00:00",
+  "train_rows": 3,
+  "val_rows": 0
+}

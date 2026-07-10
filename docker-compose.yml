@@ -1,0 +1,32 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      ALS_DB_PATH: /app/data/als_intel.sqlite
+      ALS_WEB_HOST: 0.0.0.0
+      ALS_WEB_PORT: 8000
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: llama3.1:8b
+      ALS_CONTEXT_LIMIT: 20
+      ALS_TEMPERATURE: 0.1
+      ALS_TIMEOUT_SECONDS: 120
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  ollama:

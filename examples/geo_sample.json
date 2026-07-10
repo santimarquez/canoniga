@@ -1,0 +1,16 @@
+[
+  {
+    "source": "geo",
+    "source_id": "GSE123456",
+    "title": "Transcriptomic signatures in ALS motor cortex",
+    "year": 2021,
+    "journal": "GEO"
+  },
+  {
+    "source": "geo",
+    "source_id": "GSE654321",
+    "title": "Differential expression in ALS spinal cord tissue",
+    "year": 2020,
+    "journal": "GEO"
+  }
+]

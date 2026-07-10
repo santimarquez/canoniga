@@ -1,0 +1,27 @@
+{
+  "total_examples": 3,
+  "train_examples": 3,
+  "val_examples": 0,
+  "min_reliability": 0.5,
+  "min_source_reliability": 0.5,
+  "val_ratio": 0.2,
+  "split_strategy": "entity_outcome_hash",
+  "output_format": "messages",
+  "qa": {
+    "raw_rows": 4,
+    "rows_after_filters": 3,
+    "dropped_low_reliability": 1,
+    "dropped_low_source_reliability": 0,
+    "duplicate_claim_id_count": 0,
+    "duplicate_claim_ids": [],
+    "claims_with_contradictions": 3,
+    "contradiction_pairs_total": 2,
+    "train_val_leakage_count": 0,
+    "train_val_leakage_claim_ids": []
+  },
+  "files": {
+    "train": "data\\finetune_train\\train.jsonl",
+    "val": "data\\finetune_train\\val.jsonl",
+    "manifest": "data\\finetune_train\\manifest.json"
+  }
+}

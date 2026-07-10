@@ -1,0 +1,8 @@
+{
+  "train_rows": 3,
+  "val_rows": 0,
+  "estimated_steps": 4,
+  "val_loss_estimate": 1.5167,
+  "trainer_exit_code": 0,
+  "status": "simulated"
+}

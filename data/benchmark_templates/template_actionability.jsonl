@@ -1,0 +1,1 @@
+{"prompt": "Propose a testable next experiment for this ALS hypothesis.", "expected": {"must_include": ["specific experiment design", "endpoint definition", "go/no-go criterion"]}, "metadata": {"family": "actionability", "claim_id": "REPLACE_WITH_CLAIM_ID", "contradiction_count": 0, "reliability_score": 0.75}}

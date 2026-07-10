@@ -1,0 +1,14 @@
+__pycache__/
+.pytest_cache/
+.venv/
+*.pyc
+*.db
+*.sqlite
+dist/
+build/
+*.egg-info/
+
+# Temporary CI/benchmark runtime artifacts
+data/_tmp_*/
+tmp_*.sqlite
+

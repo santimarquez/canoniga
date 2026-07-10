@@ -1,0 +1,12 @@
+{
+  "model_id": "als-smoke-model",
+  "base_model": "llama3.1:8b",
+  "dataset_manifest_path": "C:\\Users\\santy\\repos\\canoniga\\data\\finetune_train\\manifest.json",
+  "train_file": "C:\\Users\\santy\\repos\\canoniga\\data\\finetune_train\\train.jsonl",
+  "val_file": "C:\\Users\\santy\\repos\\canoniga\\data\\finetune_train\\val.jsonl",
+  "epochs": 2,
+  "batch_size": 2,
+  "learning_rate": 0.0002,
+  "seed": 42,
+  "trainer_command": ""
+}

@@ -1,0 +1,12 @@
+[
+  {
+    "source": "pubmed",
+    "query": "(\"Amyotrophic Lateral Sclerosis\"[Mesh] OR \"amyotrophic lateral sclerosis\"[Title/Abstract] OR \"motor neuron disease\"[Title/Abstract] OR \"ALS\"[Title/Abstract] OR \"esclerosis lateral amiotrofica\"[Title/Abstract] OR \"ELA\"[Title/Abstract] OR \"sclerose laterale amyotrophique\"[Title/Abstract] OR \"SLA\"[Title/Abstract] OR \"amyotrophe lateralsklerose\"[Title/Abstract] OR \"sclerosi laterale amiotrofica\"[Title/Abstract] OR \"esclerose lateral amiotrofica\"[Title/Abstract]) AND (english[la] OR spanish[la] OR french[la] OR german[la] OR italian[la] OR portuguese[la])",
+    "max_results": 0
+  },
+  {
+    "source": "ctgov",
+    "query": "(amyotrophic lateral sclerosis) OR (motor neuron disease) OR (esclerosis lateral amiotrofica) OR (sclerose laterale amyotrophique) OR (amyotrophe lateralsklerose) OR (sclerosi laterale amiotrofica) OR (esclerose lateral amiotrofica) OR (ALS) OR (ELA) OR (SLA)",
+    "max_results": 0
+  }
+]

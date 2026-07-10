@@ -1,0 +1,16 @@
+[
+  {
+    "source": "fda_labels",
+    "source_id": "1234abcd-1111-2222-3333-444455556666",
+    "title": "Riluzole: indicated for treatment of amyotrophic lateral sclerosis",
+    "year": 2000,
+    "journal": "openFDA Drug Labels"
+  },
+  {
+    "source": "fda_labels",
+    "source_id": "7777abcd-1111-2222-3333-444455559999",
+    "title": "Edaravone: antioxidant therapy for ALS",
+    "year": 2000,
+    "journal": "openFDA Drug Labels"
+  }
+]

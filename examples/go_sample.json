@@ -1,0 +1,16 @@
+[
+  {
+    "source": "go",
+    "source_id": "GO:0006915",
+    "title": "apoptotic process: programmed cell death relevant to neurodegeneration",
+    "year": 2000,
+    "journal": "Gene Ontology"
+  },
+  {
+    "source": "go",
+    "source_id": "GO:0007399",
+    "title": "nervous system development: neuronal differentiation and maintenance",
+    "year": 2000,
+    "journal": "Gene Ontology"
+  }
+]

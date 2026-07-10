@@ -1,0 +1,16 @@
+[
+  {
+    "source": "uniprot",
+    "source_id": "P05067",
+    "title": "APP - Amyloid-beta precursor protein - Homo sapiens",
+    "year": 2010,
+    "journal": "UniProtKB"
+  },
+  {
+    "source": "uniprot",
+    "source_id": "Q8N726",
+    "title": "TARDBP - TAR DNA-binding protein 43 - Homo sapiens",
+    "year": 2012,
+    "journal": "UniProtKB"
+  }
+]

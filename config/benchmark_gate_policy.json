@@ -1,0 +1,12 @@
+{
+  "min_grounding_score": 0.65,
+  "max_hallucination_risk": 0.35,
+  "min_overall_score": 0.7,
+  "min_improvement_over_baseline": 0.02,
+  "min_benchmark_size": 20,
+  "min_family_examples": 5,
+  "min_family_grounding_score": 0.75,
+  "min_family_contradiction_score": 0.65,
+  "min_family_uncertainty_score": 0.6,
+  "min_family_actionability_score": 0.65
+}

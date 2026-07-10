@@ -1,0 +1,14 @@
+[
+  {
+    "source": "pubmed",
+    "query": "amyotrophic lateral sclerosis",
+    "max_results": 10,
+    "from_file": "examples/pubmed_sample.json"
+  },
+  {
+    "source": "ctgov",
+    "query": "als",
+    "max_results": 10,
+    "from_file": "examples/ctgov_sample.json"
+  }
+]

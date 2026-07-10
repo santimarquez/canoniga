@@ -1,0 +1,35 @@
+{
+  "input_path": "data\\benchmark_templates",
+  "files_checked": 4,
+  "rows_checked": 4,
+  "valid_rows": 4,
+  "invalid_rows": 0,
+  "status": "ok",
+  "per_file": [
+    {
+      "file": "data\\benchmark_templates\\template_actionability.jsonl",
+      "rows": 1,
+      "valid_rows": 1,
+      "invalid_rows": 0
+    },
+    {
+      "file": "data\\benchmark_templates\\template_contradiction.jsonl",
+      "rows": 1,
+      "valid_rows": 1,
+      "invalid_rows": 0
+    },
+    {
+      "file": "data\\benchmark_templates\\template_grounding.jsonl",
+      "rows": 1,
+      "valid_rows": 1,
+      "invalid_rows": 0
+    },
+    {
+      "file": "data\\benchmark_templates\\template_uncertainty.jsonl",
+      "rows": 1,
+      "valid_rows": 1,
+      "invalid_rows": 0
+    }
+  ],
+  "errors": []
+}

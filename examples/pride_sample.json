@@ -1,0 +1,16 @@
+[
+  {
+    "source": "pride",
+    "source_id": "PXD012345",
+    "title": "Proteomic landscape of ALS cerebrospinal fluid",
+    "year": 2021,
+    "journal": "PRIDE"
+  },
+  {
+    "source": "pride",
+    "source_id": "PXD098765",
+    "title": "Mass spectrometry profiling in ALS cohorts",
+    "year": 2020,
+    "journal": "PRIDE"
+  }
+]

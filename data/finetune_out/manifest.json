@@ -1,0 +1,11 @@
+{
+  "total_examples": 3,
+  "train_examples": 3,
+  "val_examples": 0,
+  "min_reliability": 0.5,
+  "val_ratio": 0.2,
+  "files": {
+    "train": "data\\finetune_out\\train.jsonl",
+    "val": "data\\finetune_out\\val.jsonl"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "total_examples": 3,
+  "train_examples": 1,
+  "val_examples": 2,
+  "min_reliability": 0.5,
+  "min_source_reliability": 0.5,
+  "val_ratio": 0.0,
+  "min_val_examples": 2,
+  "split_strategy": "claim_hash",
+  "output_format": "messages",
+  "qa": {
+    "raw_rows": 4,
+    "rows_after_filters": 3,
+    "dropped_low_reliability": 1,
+    "dropped_low_source_reliability": 0,
+    "duplicate_claim_id_count": 0,
+    "duplicate_claim_ids": [],
+    "claims_with_contradictions": 3,
+    "contradiction_pairs_total": 2,
+    "train_val_leakage_count": 0,
+    "train_val_leakage_claim_ids": [],
+    "validation_examples_below_minimum": false
+  },
+  "files": {
+    "train": "data\\finetune_train2\\train.jsonl",
+    "val": "data\\finetune_train2\\val.jsonl",
+    "manifest": "data\\finetune_train2\\manifest.json"
+  }
+}

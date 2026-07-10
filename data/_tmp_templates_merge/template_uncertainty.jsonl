@@ -1,0 +1,1 @@
+{"prompt": "State confidence limits and unresolved uncertainties for this ALS finding.", "expected": {"must_include": ["explicit uncertainty statement", "confidence caveat", "next validation step"]}, "metadata": {"family": "uncertainty", "claim_id": "REPLACE_WITH_CLAIM_ID", "contradiction_count": 1, "reliability_score": 0.5}}

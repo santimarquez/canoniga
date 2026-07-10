@@ -1,0 +1,94 @@
+name: Benchmark Gate Strict
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "benchmarks/curated/**"
+      - "config/benchmark_gate_policy.json"
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/benchmark-gate-strict.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "benchmarks/curated/**"
+      - "config/benchmark_gate_policy.json"
+      - "src/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/benchmark-gate-strict.yml"
+
+jobs:
+  benchmark-gate-strict:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run regression query gate
+        run: make test-regression-queries
+
+      - name: Validate curated benchmark directory
+        run: |
+          if [ ! -d "benchmarks/curated" ]; then
+            echo "Missing required directory: benchmarks/curated"
+            exit 1
+          fi
+          count=$(find benchmarks/curated -type f -name '*.jsonl' | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "No curated benchmark JSONL files found in benchmarks/curated"
+            exit 1
+          fi
+          echo "Found $count curated benchmark JSONL files"
+
+      - name: Create strict gate model fixture
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from als_intel.store import EvidenceStore
+
+          out = Path("ci_artifacts")
+          out.mkdir(parents=True, exist_ok=True)
+          db_path = out / "als_intel_ci.sqlite"
+
+          store = EvidenceStore(db_path)
+          store.init_db()
+          store.register_model(
+              model_id="ci-strict-candidate-model",
+              base_model="llama3.1:8b",
+              adapter_path="/tmp/ci-strict-candidate-model",
+              dataset_manifest_path="/tmp/manifest.json",
+              training_config={"epochs": 1},
+              metrics={"val_loss_estimate": 0.45, "train_rows": 500},
+              status="trained",
+              notes="strict benchmark gate fixture"
+          )
+          PY
+
+      - name: Run strict benchmark gate
+        run: |
+          als-intel benchmark-gate \
+            --db ci_artifacts/als_intel_ci.sqlite \
+            --candidate-model-id ci-strict-candidate-model \
+            --input-path benchmarks/curated \
+            --output-dir ci_artifacts/benchmark_gate_strict \
+            --policy-file config/benchmark_gate_policy.json
+
+      - name: Upload strict gate artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-gate-strict-artifacts
+          path: ci_artifacts/benchmark_gate_strict

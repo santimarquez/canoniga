@@ -1,0 +1,15 @@
+{
+  "created_at": "2026-06-23T22:17:26.169470+00:00",
+  "dataset_manifest_path": "C:\\Users\\santy\\repos\\canoniga\\data\\finetune_train2\\manifest.json",
+  "benchmark_size": 2,
+  "min_examples": 2,
+  "max_examples": 50,
+  "source_counts": {
+    "val_source_rows": 2,
+    "train_source_rows": 1
+  },
+  "files": {
+    "benchmark": "data\\benchmark2\\benchmark.jsonl",
+    "manifest": "data\\benchmark2\\benchmark_manifest.json"
+  }
+}
