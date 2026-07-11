@@ -8,6 +8,7 @@ import pytest
 
 from als_intel.auth import AuthConfig, AuthService
 from als_intel.emails import build_magic_link_email, render_email_layout
+from als_intel.brand import LOGO_ACCENT_COLOR, LOGO_PRIMARY_COLOR
 from als_intel.emails.theme import PRIMARY_STRONG, PRODUCT_NAME
 
 
@@ -33,7 +34,9 @@ def test_build_magic_link_email_html_branding() -> None:
     )
 
     assert PRIMARY_STRONG in content.html
-    assert PRODUCT_NAME in content.html
+    assert '<svg' in content.html
+    assert LOGO_PRIMARY_COLOR in content.html
+    assert LOGO_ACCENT_COLOR in content.html
     assert "Open Source Intelligence" in content.html
     assert "Open sign-in link" in content.html
     assert 'href="http://localhost:8000/?magic_token=abc123"' in content.html
@@ -48,7 +51,8 @@ def test_render_email_layout_includes_header_footer() -> None:
         body_html="<p>Body content</p>",
     )
 
-    assert PRODUCT_NAME in html
+    assert '<svg' in html
+    assert LOGO_PRIMARY_COLOR in html
     assert "Test headline" in html
     assert "Preview line" in html
     assert "Body content" in html

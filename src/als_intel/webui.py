@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import Request, urlopen
 
 from als_intel.auth import AuthService, build_auth_config
+from als_intel.brand import LOGO_URL_PATH, logo_bytes, logo_mime_type, render_inline_logo
 from als_intel.llm import LocalLLMError, build_grounded_prompt, generate_with_ollama, generate_with_ollama_stream
 from als_intel.store import EvidenceStore
 
@@ -130,10 +131,10 @@ PAGE_TEMPLATE = Template(
         border-color: var(--primary-strong);
       }
       .brand {
-        font-weight: 700;
-        color: var(--primary-strong);
-        font-size: 1.02rem;
-        letter-spacing: -0.02em;
+        display: inline-flex;
+        align-items: center;
+        text-decoration: none;
+        line-height: 0;
       }
       .statusrow {
         display: flex;
@@ -1048,7 +1049,7 @@ PAGE_TEMPLATE = Template(
   <body>
     <header class="topbar">
       <div class="topbar-left">
-        <div class="brand">MTVL AI</div>
+        <a href="/" class="brand" title="MTVL AI">$logo_html</a>
         <div class="metric-cluster">
           <div class="metric-chip"><span class="material-symbols-outlined" style="font-size:16px">model_training</span><span id="status-model">$model</span></div>
           <div class="metric-chip"><span id="statusDbDot" class="dot"></span><span id="status-db" class="status-link" role="button" tabindex="0" title="Open database explorer">DB synced</span></div>
@@ -4399,10 +4400,7 @@ LOGIN_TEMPLATE = Template(
         <div class="accent-bar"></div>
         <div class="flex-1 p-6 flex flex-col gap-6">
           <div class="flex flex-col items-center text-center gap-2">
-            <div class="w-12 h-12 flex items-center justify-center bg-blue-100 rounded-xl text-blue-900 mb-2">
-              <span class="material-symbols-outlined !text-[32px]">biotech</span>
-            </div>
-            <h1 class="text-xl font-semibold text-slate-900 tracking-tight">MTVL AI</h1>
+            $logo_html
             <p class="text-xs font-semibold text-blue-900 uppercase tracking-widest">Open Source Intelligence</p>
           </div>
           <div id="loginIntro" class="flex flex-col gap-1 text-center">
@@ -5859,6 +5857,7 @@ def render_index_page(
         temperature=temperature,
         timeout_seconds=timeout_seconds,
       auth_enabled=("true" if auth_enabled else "false"),
+      logo_html=render_inline_logo(height_px=28),
     )
     return html.encode("utf-8")
 
@@ -5867,6 +5866,7 @@ def render_login_page(*, auth_enabled: bool) -> bytes:
   html = LOGIN_TEMPLATE.substitute(
     auth_enabled=("true" if auth_enabled else "false"),
     current_year=str(datetime.now(timezone.utc).year),
+    logo_html=render_inline_logo(height_px=48),
   )
   return html.encode("utf-8")
 
@@ -5915,6 +5915,16 @@ def render_terms_page() -> bytes:
     current_year=str(datetime.now(timezone.utc).year),
   )
   return html.encode("utf-8")
+
+
+def _write_brand_logo(handler: BaseHTTPRequestHandler) -> None:
+    data = logo_bytes()
+    handler.send_response(HTTPStatus.OK)
+    handler.send_header("Content-Type", logo_mime_type())
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "public, max-age=86400")
+    handler.end_headers()
+    handler.wfile.write(data)
 
 
 class ChatHandler(BaseHTTPRequestHandler):
@@ -6056,6 +6066,13 @@ class ChatHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         query_params = parse_qs(parsed.query)
+
+        if path == LOGO_URL_PATH:
+            try:
+                _write_brand_logo(self)
+            except FileNotFoundError:
+                self.send_error(HTTPStatus.NOT_FOUND, "Logo not found")
+            return
 
         settings = self._settings()
         auth_user: dict[str, str] | None = None

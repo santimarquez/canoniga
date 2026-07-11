@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
+COPY assets ./assets
 COPY examples ./examples
 COPY benchmarks ./benchmarks
 COPY config ./config

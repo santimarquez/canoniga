@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from html import escape
 
+from als_intel.brand import render_email_logo
 from als_intel.emails.theme import (
     ACCENT_BAR_WIDTH,
     BACKGROUND,
@@ -81,8 +82,8 @@ def render_email_layout(
     footer_block = footer_html if footer_html is not None else default_footer
     safe_title = escape(title)
     safe_preheader = escape(preheader)
-    safe_product = escape(PRODUCT_NAME)
     safe_tagline = escape(PRODUCT_TAGLINE)
+    logo_html = render_email_logo(height_px=36)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -107,8 +108,7 @@ def render_email_layout(
                 &nbsp;
               </td>
               <td style="padding:32px 28px;">
-                <p style="margin:0 0 4px;font-family:{FONT_STACK};font-size:20px;font-weight:600;
-                  color:{TEXT};">{safe_product}</p>
+                <div style="margin:0 0 4px;">{logo_html}</div>
                 <p style="margin:0 0 24px;font-family:{FONT_STACK};font-size:11px;font-weight:600;
                   letter-spacing:0.12em;text-transform:uppercase;color:{PRIMARY_STRONG};">
                   {safe_tagline}
