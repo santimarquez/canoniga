@@ -1,0 +1,17 @@
+[
+  {"source": "pubmed", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "ctgov", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "pmc", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "ncbi_gene", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "uniprot", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "go", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "reactome", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "geo", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "arrayexpress", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "kegg", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "pride", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "metabolomics_workbench", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "chembl", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "open_targets", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5},
+  {"source": "fda_labels", "query": "(amyotrophic lateral sclerosis OR ALS)", "max_results": 5}
+]

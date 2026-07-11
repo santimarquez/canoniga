@@ -195,8 +195,9 @@ test-extraction-fidelity:
 
 train-eval-promote:
 	$(ALS) export-finetune-data --db $(DB_PATH) --output-dir data/finetune --min-reliability 0.55 --min-source-reliability 0.6 --val-ratio 0.2 --split-strategy entity_outcome_hash --format messages --min-val-examples 5
-	$(ALS) train-model --db $(DB_PATH) --dataset-manifest data/finetune/manifest.json --base-model $(MODEL) --output-dir data/models --trainer-command "bash scripts/local_trainer.sh {train_file} {val_file} {output_dir} {base_model}"
-	$(ALS) benchmark-gate --db $(DB_PATH) --candidate-model-id $(MODEL) --input-path benchmarks/curated --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
+	@MODEL_ID=$$($(ALS) train-model --db $(DB_PATH) --dataset-manifest data/finetune/manifest.json --base-model $(MODEL) --output-dir data/models --trainer-command "bash scripts/local_trainer.sh {train_file} {val_file} {output_dir} {base_model}" | $(PYTHON) -c "import sys, json; print(json.load(sys.stdin)['model_id'])") && \
+		echo "Registered candidate model: $$MODEL_ID" && \
+		$(ALS) benchmark-gate --db $(DB_PATH) --candidate-model-id $$MODEL_ID --input-path benchmarks/curated --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
 
 nightly-ops:
 	$(MAKE) sync-all-sources

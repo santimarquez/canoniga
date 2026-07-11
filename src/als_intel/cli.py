@@ -887,11 +887,34 @@ def main() -> None:
     if args.command == "agent-report":
         store = EvidenceStore(args.db)
         approved = store.approved_claim_ids() if args.require_review_signoff else set()
+        if store.knowledge_graph_overview()["edges"] == 0:
+            store.rebuild_knowledge_graph()
+        support_map = store.graph_support_contradiction_map(limit=30)
+        neighbor_rows: list[dict[str, object]] = []
+        for row in support_map:
+            entity = str(row.get("entity", "")).strip()
+            if not entity:
+                continue
+            for neighbor in store.graph_neighbors(entity, limit=6):
+                neighbor_rows.append(
+                    {
+                        "entity": entity,
+                        "neighbor_entity": str(neighbor.get("neighbor_label", "")),
+                        "neighbor_label": str(neighbor.get("neighbor_label", "")),
+                        "edge_type": str(neighbor.get("edge_type", "")),
+                        "neighbor_type": str(neighbor.get("neighbor_type", "")),
+                        "polarity": str(neighbor.get("polarity", "")),
+                        "weight": neighbor.get("weight", 0.0),
+                    }
+                )
         report = build_agent_report(
             store.all_evidence(),
             store.contradiction_pairs(),
             require_review_signoff=args.require_review_signoff,
             approved_claim_ids=approved,
+            support_map_rows=support_map,
+            graph_neighbor_rows=neighbor_rows,
+            systems_biology_limit=5,
         )
         print(json.dumps(report, indent=2))
         return

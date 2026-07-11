@@ -14,7 +14,7 @@ Track implementation status for all requested datasource extractors and keep a s
 - [x] Phase 1: Extractor foundation implemented (base interface, registry, PubMed/ClinicalTrials extractors migrated).
 - [x] Phase 2: Per-source extractor_config and stage_config in scheduler plans.
 - [x] Phase 3: Public-source onboarding batch A (completed).
-- [ ] Phase 4: Restricted-source stubs batch.
+- [x] Phase 4: Restricted-source stubs batch (`restricted.py` stubs with `AccessNotConfiguredError`).
 - [x] Phase 5: Cross-source reliability/provenance hardening (contract validation + connector retry/backoff policies complete).
 - [x] Phase 6: UI/API source visibility extensions for all public sources (provenance fields surfaced in DB explorer API/detail).
 - [x] Phase 7: Comprehensive source-by-source test matrix for public sources.

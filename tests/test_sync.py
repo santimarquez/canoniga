@@ -489,12 +489,12 @@ def test_pmc_sync_from_fixture(tmp_path: Path) -> None:
         from_file="examples/pmc_sample.json",
     )
     assert result["status"] == "ok"
-    assert int(result["inserted"]) == 2
+    assert int(result["inserted"]) == 4
     assert result["source"] == "pmc"
 
     store = EvidenceStore(db_path)
     rows = store.all_evidence()
-    assert len(rows) == 2
+    assert len(rows) == 4
     assert all(str(row["claim_id"]).startswith("PMC_") for row in rows)
 
 
@@ -883,7 +883,7 @@ def test_schedule_sync_all_public_sources_single_cycle(tmp_path: Path) -> None:
     assert result["cycles"] == 1
     assert result["jobs"] == 15
     assert len(result["runs"]) == 15
-    assert int(result["totals"]["inserted"]) == 30
+    assert int(result["totals"]["inserted"]) == 32
     sources = {str(run["source"]) for run in result["runs"]}
     assert len(sources) == 15
 

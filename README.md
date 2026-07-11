@@ -66,13 +66,40 @@ Once the GitHub owner/repo is known, you can enable badges by replacing `<OWNER>
 
 ## Scientific fidelity additions (current)
 
-- Structured claim extraction pipeline for PubMed and ClinicalTrials.gov (`claim_builder.py`).
-- Extraction fidelity benchmark gate (`make test-extraction-fidelity`).
+- Structured claim extraction pipeline for **all 15 public sources** (`claim_builder.py`).
+- Extraction fidelity benchmark gate (`make test-extraction-fidelity`) with **43** gold cases.
 - Systems Biology agent for pathway neighborhood hypotheses.
 - Runtime claim verification guardrails in web chat/synthesis responses.
 - Default scheduler plan uses all 15 public sources (`config/sync_plan.all_public_sources.json`).
 - Restricted datasource stubs (DrugBank, Project MinE, Answer ALS, ALS-TDI, NEALS, ALS Association).
 - Governance docs in `docs/` and longitudinal ops runbook in `ai/plans/LONGITUDINAL_OPS_RUNBOOK.md`.
+
+## Nightly operations
+
+Run unattended sync, graph rebuild, and worker tick:
+
+```bash
+export ALS_AUTOMATION_WORKER_TOKEN="<worker-token>"
+make nightly-ops
+```
+
+For a bounded live API smoke sync (5 records per source):
+
+```bash
+SYNC_ALL_PLAN=config/sync_plan.smoke_public_sources.json make sync-all-sources
+make sync-stats
+```
+
+## Local training path
+
+`make train-eval-promote` exports finetune data, runs [`scripts/local_trainer.sh`](scripts/local_trainer.sh) (Ollama `create` when available), and evaluates via benchmark gate using the **registered model id** returned by `train-model`. The trainer writes a non-simulated marker (`real-ollama-create` or `real-offline-trainer`) in `data/models/<model_id>/adapter.bin`.
+
+Example smoke run (2026-07-11):
+
+```bash
+DB_PATH=data/smoke.sqlite make train-eval-promote
+# Registered candidate model: als-20260711224145-dd12ad06
+```
 
 ## Quick start
 

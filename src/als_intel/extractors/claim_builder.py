@@ -79,6 +79,7 @@ def _text_blob(doc: dict[str, Any]) -> str:
     parts = [
         str(doc.get("title", "")),
         str(doc.get("abstract", "") or doc.get("abstract_text", "")),
+        str(doc.get("body_text", "") or doc.get("full_text", "")),
         " ".join(str(m) for m in doc.get("mesh_terms", []) if m),
     ]
     return " ".join(p.strip() for p in parts if p.strip()).lower()
@@ -399,8 +400,12 @@ def build_pmc_claim(doc: dict[str, Any]) -> BuiltClaim:
         cohort="mixed",
         model_system=_infer_model_system(text, doc),
         endpoint=outcome,
-        provenance={"mesh_terms": mesh_terms, "abstract_present": bool(abstract)},
-        coverage_values=(entity, outcome, effect_direction, abstract or title, relation),
+        provenance={
+            "mesh_terms": mesh_terms,
+            "abstract_present": bool(abstract),
+            "body_text_present": bool(str(doc.get("body_text", "")).strip()),
+        },
+        coverage_values=(entity, outcome, effect_direction, abstract or str(doc.get("body_text", "")) or title, relation),
         abstract=abstract,
     )
 

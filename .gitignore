@@ -4,11 +4,20 @@ __pycache__/
 *.pyc
 *.db
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 dist/
 build/
 *.egg-info/
+assets/mtvl-ai-logo-v2-minimal-m.png
+assets/mtvl-ai-logo-v3-hex-graph.png
+assets/mtvl-ai-logo-v4-orbit.png
+assets/mtvl-ai-logo-v5-lettermark.png
 
 # Temporary CI/benchmark runtime artifacts
 data/_tmp_*/
+data/finetune/
+data/benchmark_gate/
+data/models/
 tmp_*.sqlite
 

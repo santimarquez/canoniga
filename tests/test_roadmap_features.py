@@ -142,6 +142,58 @@ def test_failure_atlas_uses_primary_endpoint_result() -> None:
     assert atlas["entries"][0]["root_cause"] == "endpoint_sensitivity"
 
 
+def test_cli_agent_report_includes_systems_biology_agent(tmp_path) -> None:
+    from als_intel.store import EvidenceStore
+    from als_intel.agents.orchestrator import build_agent_report
+    from als_intel.sync import run_incremental_sync
+
+    db_path = tmp_path / "agent.sqlite"
+    run_incremental_sync(
+        db_path=str(db_path),
+        source="kegg",
+        query="als",
+        from_file="examples/kegg_sample.json",
+    )
+    store = EvidenceStore(str(db_path))
+    store.rebuild_knowledge_graph()
+    support_map = store.graph_support_contradiction_map(limit=10)
+    assert support_map
+    report = build_agent_report(
+        evidence_rows=store.all_evidence(),
+        contradiction_rows=store.contradiction_pairs(),
+        support_map_rows=support_map,
+        graph_neighbor_rows=[],
+    )
+    assert "systems_biology_agent" in report
+
+
+def test_failure_atlas_api_payload_includes_endpoint_result() -> None:
+    from als_intel.agents.historical import build_failure_atlas
+
+    rows = [
+        {
+            "claim_id": "CTGOV_API_1",
+            "entity": "neuroinflammation",
+            "outcome": "ALS functional rating",
+            "source_doi": "NCTAPI1",
+            "study_type": "interventional",
+            "effect_direction": "contradicts",
+            "claim_text": "completed trial",
+            "source_title": "completed trial",
+            "sample_size": 200,
+            "endpoint_validity": 0.7,
+            "cohort": "ALS",
+            "reliability_score": 0.6,
+            "extraction_provenance": {
+                "trial_status": "Completed",
+                "primary_endpoint_result": "No significant difference versus placebo",
+            },
+        }
+    ]
+    atlas = build_failure_atlas(rows)
+    assert atlas["entries"][0]["primary_endpoint_result"] == "No significant difference versus placebo"
+
+
 def test_ctgov_sample_fixture_uses_structured_claim_text() -> None:
     record = build_record_from_doc(
         {

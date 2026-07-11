@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -97,6 +98,25 @@ def _chunk(values: list[str], size: int) -> list[list[str]]:
 
 def _target_limit(max_results: int) -> int | None:
     return int(max_results) if int(max_results) > 0 else None
+
+
+def _strip_xml_text(xml_text: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", xml_text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _fetch_pmc_body_snippet(pmcid: str, *, max_chars: int = 1800) -> str:
+    if not pmcid:
+        return ""
+    source_id = pmcid if pmcid.upper().startswith("PMC") else f"PMC{pmcid}"
+    url = f"https://www.ebi.ac.uk/europepmc/webservices/rest/{source_id}/fullTextXML"
+    try:
+        xml_text = _http_request_text(url=url, source_name="pmc", method="GET")
+    except Exception:  # noqa: BLE001
+        return ""
+    body_match = re.search(r"<body[^>]*>(.*)</body>", xml_text, flags=re.DOTALL | re.IGNORECASE)
+    raw_body = body_match.group(1) if body_match else xml_text
+    return _strip_xml_text(raw_body)[:max_chars]
 
 
 def fetch_pubmed(query: str, max_results: int = 20, from_file: str | None = None) -> list[dict[str, Any]]:
@@ -391,6 +411,9 @@ def fetch_pmc(query: str, max_results: int = 20, from_file: str | None = None) -
         journal = str(row.get("journalTitle", "") or "")
         pub_year = int(str(row.get("pubYear", "0") or "0")[:4] or 0)
         abstract = str(row.get("abstractText", "") or row.get("abstract", "") or "").strip()
+        body_text = str(row.get("body_text", "") or "").strip()
+        if not body_text and pmcid and target is not None and target <= 25:
+            body_text = _fetch_pmc_body_snippet(pmcid)
         docs.append(
             {
                 "source": "pmc",
@@ -399,6 +422,7 @@ def fetch_pmc(query: str, max_results: int = 20, from_file: str | None = None) -
                 "year": pub_year,
                 "journal": journal,
                 "abstract": abstract,
+                "body_text": body_text,
             }
         )
     return docs

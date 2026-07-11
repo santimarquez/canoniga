@@ -3,6 +3,8 @@
     "source": "pmc",
     "source_id": "PMC1000001",
     "title": "Open-access ALS cohort analysis in motor neuron disease",
+    "abstract": "Motor neuron degeneration markers were associated with faster ALS progression.",
+    "body_text": "Results showed microglial activation correlated with reduced survival in the cohort.",
     "year": 2024,
     "journal": "ALS Open Research"
   },
@@ -10,7 +12,27 @@
     "source": "pmc",
     "source_id": "PMC1000002",
     "title": "Meta-analysis of neuroinflammation biomarkers in ALS",
+    "abstract": "Pooled neuroinflammation biomarkers associated with disease progression.",
+    "body_text": "Discussion highlights neuroinflammation as a consistent progression signal.",
     "year": 2023,
     "journal": "Neurodegeneration Reports"
+  },
+  {
+    "source": "pmc",
+    "source_id": "PMC1000004",
+    "title": "TDP-43 pathology and axonal transport defects in ALS models",
+    "abstract": "TDP-43 pathology correlated with axonal transport impairment in preclinical models.",
+    "body_text": "Axonal transport defects were observed alongside TDP-43 pathology in motor neurons.",
+    "year": 2022,
+    "journal": "Cell Reports"
+  },
+  {
+    "source": "pmc",
+    "source_id": "PMC1000005",
+    "title": "Protein aggregation inhibitor improved motor outcomes in ALS mice",
+    "abstract": "Treatment reduced protein aggregation and improved motor function.",
+    "body_text": "Protein aggregation decreased and motor outcomes improved in treated mice.",
+    "year": 2021,
+    "journal": "Science Translational Medicine"
   }
 ]

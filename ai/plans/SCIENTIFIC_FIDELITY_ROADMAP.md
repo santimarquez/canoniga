@@ -8,10 +8,10 @@ Track implementation progress for the 6-month Canoniga scientific intelligence r
 - [x] Done
 
 ## Phase 1 — Structured claim extraction
-- [x] `claim_builder.py` two-stage pipeline for PubMed and ClinicalTrials.gov
-- [x] CTGov connector enriched with trial status, phase, enrollment, endpoints
+- [x] `claim_builder.py` structured pipeline for all 15 public sources
+- [x] CTGov connector enriched with trial status, phase, enrollment, endpoints, and resultsSection fields
 - [x] Extraction provenance stored in `evidence_source_metadata`
-- [x] `extraction_fidelity` benchmark family and CI tests
+- [x] `extraction_fidelity` benchmark family, CI gate, and **43** gold cases
 
 ## Phase 2 — Knowledge depth
 - [x] Structured failed-trial corpus in Historical Failure Agent

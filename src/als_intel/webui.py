@@ -1530,6 +1530,7 @@ PAGE_TEMPLATE = Template(
           response_mode_sync: 'sync',
           response_mode_sync_fallback: 'sync fallback',
           guardrail_flags: 'Guardrails',
+          verification_flags: 'Verification',
           done_rows_used: 'Done. {count} rows used.',
           no_report_to_save: 'No report to save yet.',
           session_saved: 'Session saved to database.',
@@ -1714,6 +1715,7 @@ PAGE_TEMPLATE = Template(
           response_mode_sync: 'sync',
           response_mode_sync_fallback: 'sync fallback',
           guardrail_flags: 'Guardrails',
+          verification_flags: 'Verification',
           done_rows_used: 'Listo. {count} filas utilizadas.',
           no_report_to_save: 'Aun no hay informe para guardar.',
           session_saved: 'Sesion guardada en la base de datos.',
@@ -2135,6 +2137,9 @@ PAGE_TEMPLATE = Template(
           const flags = Array.isArray(trace.guardrail_flags) && trace.guardrail_flags.length
             ? trace.guardrail_flags.join(', ')
             : '-';
+          const verificationFlags = Array.isArray(trace.verification_flags) && trace.verification_flags.length
+            ? trace.verification_flags.join(', ')
+            : '-';
 
           return (
             '<div class="tiny" style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px;background:#fff">' +
@@ -2150,6 +2155,7 @@ PAGE_TEMPLATE = Template(
               '</div>' +
               '<div style="margin-top:4px">' + t('rows_retrieved') + ': ' + Number(trace.evidence_count || 0) + ' | ' + t('rows_cited') + ': ' + Number(trace.cited_evidence_count || 0) + '</div>' +
               '<div style="margin-top:2px">' + t('guardrail_flags') + ': ' + escapeHtml(flags) + '</div>' +
+              '<div style="margin-top:2px">' + t('verification_flags') + ': ' + escapeHtml(verificationFlags) + '</div>' +
             '</div>'
           );
         });
@@ -6536,6 +6542,21 @@ class ChatHandler(BaseHTTPRequestHandler):
             review_queue_summary = store.investigation_review_queue_summary(user_id=user_id)
             metrics["review_queue"] = review_queue_summary
             _json_response(self, HTTPStatus.OK, metrics)
+          except Exception as exc:
+            _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+          return
+
+        if path == "/api/failure-atlas":
+          try:
+            from als_intel.agents.historical import build_failure_atlas
+
+            settings = self._settings()
+            user = self._require_auth(settings)
+            if user is None:
+              return
+            store = self._store(str(settings["db_path"]))
+            atlas = build_failure_atlas(store.all_evidence_with_provenance())
+            _json_response(self, HTTPStatus.OK, atlas)
           except Exception as exc:
             _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
           return

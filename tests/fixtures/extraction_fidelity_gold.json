@@ -34,7 +34,7 @@
     "expected": {
       "entity": "mitochondrial dysfunction",
       "relation": "associated_with",
-      "outcome": "disease progression",
+      "outcome": "biomarker response",
       "effect_direction": "contradicts"
     }
   },
@@ -74,7 +74,7 @@
       "entity": "C9orf72",
       "relation": "genetic_association",
       "outcome": "disease progression",
-      "effect_direction": "supports"
+      "effect_direction": "neutral"
     }
   },
   {
@@ -103,10 +103,10 @@
       "journal": "Cell Reports"
     },
     "expected": {
-      "entity": "TDP-43 pathology",
+      "entity": "axonal transport",
       "relation": "associated_with",
       "outcome": "disease progression",
-      "effect_direction": "supports"
+      "effect_direction": "neutral"
     }
   },
   {
@@ -141,7 +141,7 @@
       "entity": "rna processing",
       "relation": "associated_with",
       "outcome": "disease progression",
-      "effect_direction": "neutral"
+      "effect_direction": "supports"
     }
   },
   {
@@ -175,7 +175,7 @@
     "expected": {
       "entity": "als mechanism (unspecified)",
       "relation": "associated_with",
-      "outcome": "respiratory function",
+      "outcome": "biomarker response",
       "effect_direction": "neutral"
     }
   },
@@ -194,7 +194,7 @@
     },
     "expected": {
       "entity": "neuroinflammation",
-      "relation": "modulates",
+      "relation": "fails_to_modulate",
       "outcome": "ALS functional rating",
       "effect_direction": "neutral"
     }
@@ -216,7 +216,7 @@
     "expected": {
       "entity": "protein aggregation",
       "relation": "fails_to_modulate",
-      "outcome": "ALS functional rating",
+      "outcome": "disease progression",
       "effect_direction": "contradicts"
     }
   },
@@ -233,7 +233,7 @@
     },
     "expected": {
       "entity": "mitochondrial dysfunction",
-      "relation": "modulates",
+      "relation": "fails_to_modulate",
       "outcome": "survival",
       "effect_direction": "neutral"
     }
@@ -270,7 +270,7 @@
     },
     "expected": {
       "entity": "microglial activation",
-      "relation": "modulates",
+      "relation": "fails_to_modulate",
       "outcome": "biomarker response",
       "effect_direction": "neutral"
     }
@@ -698,6 +698,40 @@
       "relation": "fails_to_modulate",
       "outcome": "ALS functional rating",
       "effect_direction": "contradicts"
+    }
+  },
+  {
+    "doc": {
+      "source": "pmc",
+      "source_id": "PMC1000004",
+      "title": "TDP-43 pathology and axonal transport defects in ALS models",
+      "abstract": "TDP-43 pathology correlated with axonal transport impairment in preclinical models.",
+      "body_text": "Axonal transport defects were observed alongside TDP-43 pathology in motor neurons.",
+      "year": 2022,
+      "journal": "Cell Reports"
+    },
+    "expected": {
+      "entity": "axonal transport",
+      "relation": "associated_with",
+      "outcome": "disease progression",
+      "effect_direction": "neutral"
+    }
+  },
+  {
+    "doc": {
+      "source": "pmc",
+      "source_id": "PMC1000005",
+      "title": "Protein aggregation inhibitor improved motor outcomes in ALS mice",
+      "abstract": "Treatment reduced protein aggregation and improved motor function.",
+      "body_text": "Protein aggregation decreased and motor outcomes improved in treated mice.",
+      "year": 2021,
+      "journal": "Science Translational Medicine"
+    },
+    "expected": {
+      "entity": "protein aggregation",
+      "relation": "associated_with",
+      "outcome": "disease progression",
+      "effect_direction": "supports"
     }
   }
 ]

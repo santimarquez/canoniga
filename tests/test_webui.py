@@ -247,6 +247,10 @@ def test_rank_cited_evidence_rows_prioritizes_reliability_and_recency() -> None:
     assert [row["claim_id"] for row in ranked][:2] == ["C_NEW_HIGH", "C_MID"]
 
 
+def test_diagnostics_template_references_verification_flags() -> None:
+    assert "verification_flags" in PAGE_TEMPLATE.template
+
+
 def test_login_template_includes_magic_link_confirmation_panel() -> None:
     html = LOGIN_TEMPLATE.substitute(
         auth_enabled="true",
