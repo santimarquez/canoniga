@@ -17,12 +17,19 @@ services:
     depends_on:
       - ollama
 
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    volumes:
+      - mailpit:/data
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: 500
+
   ollama:
     image: ollama/ollama:latest
-    gpus: all
-    environment:
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
     ports:
       - "11434:11434"
     volumes:
@@ -30,3 +37,4 @@ services:
 
 volumes:
   ollama:
+  mailpit:

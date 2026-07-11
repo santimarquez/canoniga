@@ -4,8 +4,15 @@ services:
       sh -c "python -m pip install --quiet watchfiles &&
       watchfiles --filter python 'python -m als_intel.webui' /app/src /app/config /app/examples"
     environment:
+      ALS_MAGIC_LINK_DEV_MODE: "0"
+      ALS_SMTP_HOST: mailpit
+      ALS_SMTP_PORT: "1025"
+      ALS_SMTP_STARTTLS: "0"
+      ALS_SMTP_FROM: no-reply@canoniga.local
       ALS_MAGIC_LINK_RATE_LIMIT_COUNT: 20
       ALS_MAGIC_LINK_RATE_LIMIT_WINDOW_SECONDS: 600
       ALS_MAGIC_LINK_RATE_LIMIT_IP_COUNT: 100
     volumes:
       - ./:/app
+    depends_on:
+      - mailpit

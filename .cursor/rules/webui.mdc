@@ -1,0 +1,13 @@
+---
+description: Web UI conventions for the monolithic webui.py
+globs: "**/webui.py"
+alwaysApply: false
+---
+
+# Web UI (webui.py)
+
+- Monolithic file — add `_private_helpers` near the handlers that use them.
+- API responses use `_json_response`; streaming events use `_stream_json_event`.
+- Auth/CSRF: follow existing protected POST handler patterns; never skip CSRF on authenticated writes.
+- Extend `tests/test_webui_api.py` for every new or changed API route.
+- Keep inline HTML/CSS/JS in-file unless explicitly asked to split modules.

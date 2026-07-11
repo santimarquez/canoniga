@@ -1,4 +1,9 @@
+# Prefer a Python 3.10+ interpreter. Override anytime: make PYTHON=/path/to/python3.11 test
+ifeq ($(OS),Windows_NT)
 PYTHON ?= py -3
+else
+PYTHON ?= $(shell (test -x .venv/bin/python && echo .venv/bin/python) || (command -v python3.12 || command -v python3.11 || command -v python3.10 || command -v python3) 2>/dev/null)
+endif
 PIP ?= $(PYTHON) -m pip
 PYTEST ?= $(PYTHON) -m pytest
 ALS ?= $(PYTHON) -m als_intel
@@ -19,9 +24,11 @@ SYNC_ALL_INTERVAL_SECONDS ?= 0
 SYNC_STATS_LIMIT ?= 20
 HYPOTHESIS_LIMIT ?= 10
 
-.PHONY: help setup test lint init-db ingest-sample chat web-up web-down web-logs docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries
+.PHONY: help setup test lint init-db ingest-sample chat web-up web-down web-logs docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries
 
 DOCKER_DEV_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
+DOCKER_GPU_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml
+DOCKER_DEV_GPU_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.gpu.yml
 
 help:
 	@echo "Available targets:"
@@ -35,6 +42,9 @@ help:
 	@echo "  web-logs              Follow web chat container logs"
 	@echo "  docker-up             Start Docker stack and bootstrap sample evidence"
 	@echo "  docker-dev-up         Start Docker dev stack with bind mounts and auto-reload"
+	@echo "                        Mailpit UI at http://localhost:8025 (SMTP magic links)"
+	@echo "  docker-gpu-up         Start Docker stack with NVIDIA GPU for Ollama (Linux only)"
+	@echo "  docker-dev-gpu-up     Start Docker dev stack with NVIDIA GPU (Linux only)"
 	@echo "  docker-bootstrap       Init DB, ingest sample evidence, and pull model in Docker"
 	@echo "  docker-pull-model      Pull the Ollama model inside Docker"
 	@echo "  ollama-ps             Show active Ollama model processor usage"
@@ -58,7 +68,7 @@ help:
 
 setup:
 	$(PIP) install --upgrade pip
-	$(PIP) install -e .
+	$(PIP) install -e ".[dev]"
 
 test:
 	$(PYTEST) -q
@@ -89,8 +99,16 @@ docker-up:
 	$(MAKE) docker-bootstrap
 
 docker-dev-up:
-	$(DOCKER_DEV_COMPOSE) up --build -d ollama web
+	$(DOCKER_DEV_COMPOSE) up --build -d ollama mailpit web
 	$(MAKE) docker-bootstrap
+
+docker-gpu-up:
+	$(DOCKER_GPU_COMPOSE) up --build -d ollama web
+	$(MAKE) docker-bootstrap DOCKER_COMPOSE="$(DOCKER_GPU_COMPOSE)"
+
+docker-dev-gpu-up:
+	$(DOCKER_DEV_GPU_COMPOSE) up --build -d ollama mailpit web
+	$(MAKE) docker-bootstrap DOCKER_COMPOSE="$(DOCKER_DEV_GPU_COMPOSE)"
 
 docker-bootstrap:
 	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel init-db --db $(WEB_DB_PATH)

@@ -1,0 +1,13 @@
+---
+description: Core project standards for als-intel
+alwaysApply: true
+---
+
+# Project core
+
+- **Stdlib-only runtime** — never add packages to `[project.dependencies]` in `pyproject.toml`.
+- **Minimize scope** — match naming, types, and patterns in surrounding code; no drive-by refactors.
+- **Test after changes** — run `make test` or targeted `pytest` for substantive edits.
+- **No secrets in commits** — `.env`, SMTP creds, and API keys stay out of version control.
+- **High-impact files** — treat `store.py` and `webui.py` carefully; prefer extending `agents/` and `extractors/`.
+- **Larger features** — read `AGENTS.md` and the relevant plan in `ai/plans/` before starting.

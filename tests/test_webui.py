@@ -205,6 +205,7 @@ def test_apply_response_guardrails_fills_required_fields_when_missing() -> None:
         synthesis={"direct_answer": "", "mentioned_claim_ids": [], "supporting_claim_ids": []},
         evidence_rows=evidence_rows,
         contradiction_rows=contradiction_rows,
+        language="en",
     )
 
     assert guarded["direct_answer"] == "Interim answer with no explicit structure."

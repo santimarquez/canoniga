@@ -50,6 +50,7 @@ def test_regression_queries_pass_minimum_synthesis_guardrails() -> None:
             synthesis=synthesis,
             evidence_rows=evidence_rows,
             contradiction_rows=contradiction_rows,
+            language="en",
         )
 
         assert str(guarded.get("direct_answer", "")).strip()

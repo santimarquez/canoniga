@@ -1,0 +1,14 @@
+---
+description: Test conventions for als-intel
+globs: tests/**
+alwaysApply: false
+---
+
+# Testing
+
+- Use `tmp_path` for isolated SQLite databases in every test.
+- Seed data via `EvidenceStore` or inline JSONL strings — no shared mutable DB files.
+- Mirror production imports: `from als_intel...`.
+- Web UI tests: spin `ThreadingHTTPServer`, call endpoints with `urllib.request` (see `test_webui_api.py`).
+- Avoid live network calls; mock or use fixture files under `tests/fixtures/`.
+- Update `tests/fixtures/regression_queries.json` only when chat or guardrail behavior changes.

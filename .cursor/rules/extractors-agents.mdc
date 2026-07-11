@@ -1,0 +1,22 @@
+---
+description: Agent and extractor extension patterns
+globs: src/als_intel/{agents,extractors}/**
+alwaysApply: false
+---
+
+# Extractors and agents
+
+## New extractors
+
+1. Subclass `DataSourceExtractor` in `extractors/base.py`.
+2. Implement `fetch_docs()` and `normalize_doc()` returning `EvidenceRecord`.
+3. Register in `extractors/registry.py`.
+4. Add a sync plan entry in `config/sync_plan.*.json`.
+5. Add tests with fixture data — no live API calls.
+
+## New agents
+
+- Pure functions taking evidence/contradiction rows; no direct HTTP or DB side effects.
+- Wire into `agents/orchestrator.py` for composite reports.
+- Export public entry points from `agents/__init__.py`.
+- Add focused tests with seeded `tmp_path` databases.

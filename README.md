@@ -66,12 +66,24 @@ Once the GitHub owner/repo is known, you can enable badges by replacing `<OWNER>
 
 ## Quick start
 
-1. Create and activate a virtual environment.
-2. Install in editable mode:
+**Requires Python 3.10+.** On macOS, install with `brew install python@3.11` if your system `python3` is older.
+
+1. Create and activate a virtual environment with Python 3.10+:
 
 ```bash
-pip install -e .
+python3.11 -m venv .venv
+source .venv/bin/activate
 ```
+
+2. Install in editable mode (includes pytest for development):
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Or use `make setup` (auto-detects Python 3.10+ on macOS/Linux).
+
+For AI-assisted development in Cursor, see [AGENTS.md](AGENTS.md).
 
 3. Initialize the database:
 
@@ -178,8 +190,15 @@ That command starts the Ollama and web containers, initializes the SQLite databa
 
 Compose uses project-scoped container names, so repeated `make docker-up` runs should not collide with prior containers.
 
-The Ollama service is configured to request NVIDIA GPU access (`gpus: all`).
-Use the checks below after startup:
+By default, Ollama runs **CPU-only** so Docker works on macOS and machines without NVIDIA GPUs. On Linux with the NVIDIA Container Toolkit installed, enable GPU inference with:
+
+```bash
+make docker-gpu-up
+# or for dev mode:
+make docker-dev-gpu-up
+```
+
+After startup on NVIDIA hosts, confirm GPU usage with:
 
 ```bash
 make ollama-ps
@@ -215,6 +234,26 @@ Magic-link delivery:
 - `ALS_SMTP_USER` / `ALS_SMTP_PASSWORD` (default: empty): optional SMTP auth credentials.
 - `ALS_SMTP_FROM` (default: `no-reply@localhost`): sender email.
 - `ALS_SMTP_STARTTLS` (default: `1`): enable STARTTLS.
+
+### Local email testing (Mailpit)
+
+The dev Docker stack (`make docker-dev-up`) includes [Mailpit](https://mailpit.axllent.org/) to capture magic-link emails locally instead of returning them in the API response.
+
+| Service | URL |
+|---------|-----|
+| Mailpit inbox (view captured emails) | http://localhost:8025 |
+| Web UI | http://localhost:8000 |
+
+The dev overlay sets `ALS_MAGIC_LINK_DEV_MODE=0` and routes SMTP to `mailpit:1025`. Request a sign-in link in the web UI, then open Mailpit to read and click the link.
+
+For non-Docker local runs with Mailpit already running (`docker compose up -d mailpit`):
+
+```bash
+export ALS_MAGIC_LINK_DEV_MODE=0
+export ALS_SMTP_HOST=localhost
+export ALS_SMTP_PORT=1025
+export ALS_SMTP_STARTTLS=0
+```
 
 Rate-limiting:
 

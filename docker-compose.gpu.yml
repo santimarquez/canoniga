@@ -1,0 +1,10 @@
+# Optional NVIDIA GPU overlay for Linux hosts with the NVIDIA Container Toolkit.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d ollama web
+#   make docker-gpu-up
+services:
+  ollama:
+    gpus: all
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility

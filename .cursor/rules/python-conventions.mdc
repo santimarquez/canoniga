@@ -1,0 +1,14 @@
+---
+description: Python coding conventions for als-intel
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python conventions
+
+- Start modules with `from __future__ import annotations`.
+- Use type hints; prefer `@dataclass(slots=True)` for records (see `models.py`).
+- Validate inputs with explicit `VALID_*` sets; raise `ValueError` with clear messages.
+- Access SQLite only through `EvidenceStore` in `store.py`; schema changes need migration logic.
+- CLI: add subcommands in `build_parser()`, handle in `main()`; keep argparse style consistent.
+- Use absolute imports: `from als_intel.module import ...`.
