@@ -32,19 +32,62 @@ def _infer_root_cause(row: dict[str, object]) -> str:
     return "wrong_biology"
 
 
+TERMINAL_STATUSES = {"terminated", "withdrawn", "suspended", "unknown status"}
+
+
+def _is_structured_trial_failure(row: dict[str, object]) -> bool:
+    if str(row.get("study_type")) != "interventional":
+        return False
+    provenance = row.get("extraction_provenance")
+    if isinstance(provenance, dict):
+        status = str(provenance.get("trial_status", "")).strip().lower()
+        if status in TERMINAL_STATUSES:
+            return True
+        if str(provenance.get("termination_reason", "")).strip():
+            return True
+        endpoint_result = str(provenance.get("primary_endpoint_result", "")).lower()
+        if endpoint_result and any(
+            token in endpoint_result for token in ("no significant", "not significant", "failed to meet", "futility")
+        ):
+            return True
+    if str(row.get("effect_direction")) == "contradicts":
+        text = f"{row.get('claim_text', '')} {row.get('source_title', '')}".lower()
+        return any(token in text for token in ("failed", "terminated", "withdrawn", "lack of efficacy"))
+    return False
+
+
+def _structured_root_cause(row: dict[str, object]) -> str:
+    provenance = row.get("extraction_provenance")
+    if isinstance(provenance, dict):
+        reason = str(provenance.get("termination_reason", "")).lower()
+        endpoint_result = str(provenance.get("primary_endpoint_result", "")).lower()
+        if endpoint_result and any(
+            token in endpoint_result for token in ("no significant", "not significant", "failed to meet", "futility")
+        ):
+            return "endpoint_sensitivity"
+        if "efficacy" in reason or "futility" in reason:
+            return "wrong_biology"
+        if "enroll" in reason or "recruit" in reason:
+            return "execution_retention"
+        if "safety" in reason:
+            return "wrong_cohort"
+    return _infer_root_cause(row)
+
+
 def build_failure_atlas(evidence_rows: list[dict[str, object]]) -> dict[str, object]:
-    failures = [
-        r
-        for r in evidence_rows
-        if str(r.get("effect_direction")) == "contradicts"
-        and str(r.get("study_type")) in {"interventional", "observational"}
-    ]
+    failures = [r for r in evidence_rows if _is_structured_trial_failure(r)]
 
     entries: list[dict[str, object]] = []
     counter: Counter[str] = Counter()
+    structured_count = 0
     for row in failures:
-        cause = _infer_root_cause(row)
+        cause = _structured_root_cause(row)
         counter[cause] += 1
+        provenance = row.get("extraction_provenance")
+        if isinstance(provenance, dict) and (
+            provenance.get("trial_status") or provenance.get("termination_reason")
+        ):
+            structured_count += 1
         entries.append(
             {
                 "claim_id": row["claim_id"],
@@ -53,7 +96,42 @@ def build_failure_atlas(evidence_rows: list[dict[str, object]]) -> dict[str, obj
                 "source_doi": row["source_doi"],
                 "root_cause": cause,
                 "root_cause_rationale": ROOT_CAUSES[cause],
-                "reliability_score": row["reliability_score"],
+                "reliability_score": row.get("reliability_score"),
+                "trial_status": (
+                    str(provenance.get("trial_status", ""))
+                    if isinstance(provenance, dict)
+                    else ""
+                ),
+                "termination_reason": (
+                    str(provenance.get("termination_reason", ""))
+                    if isinstance(provenance, dict)
+                    else ""
+                ),
+                "primary_endpoint": (
+                    str(provenance.get("primary_endpoint", ""))
+                    if isinstance(provenance, dict)
+                    else ""
+                ),
+                "primary_endpoint_result": (
+                    str(provenance.get("primary_endpoint_result", ""))
+                    if isinstance(provenance, dict)
+                    else ""
+                ),
+                "adverse_events_summary": (
+                    str(provenance.get("adverse_events_summary", ""))
+                    if isinstance(provenance, dict)
+                    else ""
+                ),
+                "phase": (
+                    str(provenance.get("phase", ""))
+                    if isinstance(provenance, dict)
+                    else ""
+                ),
+                "enrollment": (
+                    provenance.get("enrollment")
+                    if isinstance(provenance, dict)
+                    else None
+                ),
             }
         )
 
@@ -68,6 +146,7 @@ def build_failure_atlas(evidence_rows: list[dict[str, object]]) -> dict[str, obj
 
     return {
         "total_failed_or_negative_records": len(failures),
+        "structured_trial_failures": structured_count,
         "root_cause_distribution": dict(counter),
         "entries": entries,
         "lessons": lessons,

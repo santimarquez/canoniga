@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from als_intel.brand import LOGO_PRIMARY_COLOR, render_inline_logo
+from als_intel.brand import LOGO_PRIMARY_COLOR, favicon_link_tag, render_inline_logo
 from als_intel.webui import (
     LOGIN_TEMPLATE,
     PAGE_TEMPLATE,
@@ -248,7 +248,12 @@ def test_rank_cited_evidence_rows_prioritizes_reliability_and_recency() -> None:
 
 
 def test_login_template_includes_magic_link_confirmation_panel() -> None:
-    html = LOGIN_TEMPLATE.substitute(auth_enabled="true", current_year="2026", logo_html=render_inline_logo(height_px=48))
+    html = LOGIN_TEMPLATE.substitute(
+        auth_enabled="true",
+        current_year="2026",
+        logo_html=render_inline_logo(height_px=48),
+        favicon_tag=favicon_link_tag(),
+    )
     assert "<svg" in html
     assert LOGO_PRIMARY_COLOR in html
     assert 'id="loginRequestPanel"' in html

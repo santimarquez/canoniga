@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 
-VALID_FAMILIES = {"grounding", "contradiction", "uncertainty", "actionability"}
+VALID_FAMILIES = {"grounding", "contradiction", "uncertainty", "actionability", "extraction_fidelity"}
 
 
 def _discover_jsonl_files(input_path: Path) -> list[Path]:
@@ -29,7 +29,9 @@ def _validate_row(row: dict[str, object]) -> list[str]:
     if family is None:
         errors.append("metadata.family is required")
     elif str(family) not in VALID_FAMILIES:
-        errors.append("metadata.family must be one of grounding|contradiction|uncertainty|actionability")
+        errors.append(
+            "metadata.family must be one of grounding|contradiction|uncertainty|actionability|extraction_fidelity"
+        )
 
     claim_id = metadata.get("claim_id")
     if claim_id is None or not str(claim_id).strip():

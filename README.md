@@ -64,6 +64,16 @@ Once the GitHub owner/repo is known, you can enable badges by replacing `<OWNER>
 - Local LLM chat mode (Ollama-compatible) grounded on in-database ALS evidence.
 - Fine-tuning dataset export pipeline (OpenAI-style train/val JSONL + manifest).
 
+## Scientific fidelity additions (current)
+
+- Structured claim extraction pipeline for PubMed and ClinicalTrials.gov (`claim_builder.py`).
+- Extraction fidelity benchmark gate (`make test-extraction-fidelity`).
+- Systems Biology agent for pathway neighborhood hypotheses.
+- Runtime claim verification guardrails in web chat/synthesis responses.
+- Default scheduler plan uses all 15 public sources (`config/sync_plan.all_public_sources.json`).
+- Restricted datasource stubs (DrugBank, Project MinE, Answer ALS, ALS-TDI, NEALS, ALS Association).
+- Governance docs in `docs/` and longitudinal ops runbook in `ai/plans/LONGITUDINAL_OPS_RUNBOOK.md`.
+
 ## Quick start
 
 **Requires Python 3.10+.** On macOS, install with `brew install python@3.11` if your system `python3` is older.
@@ -124,7 +134,7 @@ als-intel hypothesis-queue --db data/als_intel.sqlite --limit 10 --require-revie
 als-intel hypothesis-queue --db data/als_intel.sqlite --limit 10 --enforce-causal-gate
 als-intel hypothesis-queue --db data/als_intel.sqlite --limit 10 --enforce-causal-gate --causal-gate-override-entity "microglial activation"
 als-intel review-flags --db data/als_intel.sqlite
-als-intel schedule-sync --db data/als_intel.sqlite --plan config/sync_plan.multilingual_als.json --cycles 1 --interval-seconds 0
+als-intel schedule-sync --db data/als_intel.sqlite --plan config/sync_plan.all_public_sources.json --cycles 1 --interval-seconds 0
 als-intel review-decision --db data/als_intel.sqlite --claim-id PUBMED_40000001 --decision approve --reviewer reviewer_a --notes "sufficient confidence"
 als-intel review-log --db data/als_intel.sqlite --limit 20
 als-intel failure-atlas --db data/als_intel.sqlite
@@ -140,6 +150,9 @@ als-intel trial-analysis-agent --db data/als_intel.sqlite --limit 50
 als-intel repurposing-agent --db data/als_intel.sqlite --limit 50
 als-intel graph-gap-hypotheses --db data/als_intel.sqlite --limit 10
 als-intel graph-gap-hypotheses --db data/als_intel.sqlite --limit 10 --require-review-signoff
+als-intel systems-biology-agent --db data/als_intel.sqlite --limit 10
+als-intel extraction-fidelity-gate
+make train-eval-promote
 ```
 
 ## Docker web chat

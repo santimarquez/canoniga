@@ -15,7 +15,8 @@ OLLAMA_HOST ?= http://localhost:11434
 WEB_PORT ?= 8000
 WEB_DB_PATH ?= /app/data/als_intel.sqlite
 WEB_SAMPLE_INPUT ?= /app/examples/sample_evidence.jsonl
-SYNC_PLAN ?= config/sync_plan.multilingual_als.json
+SYNC_PLAN ?= config/sync_plan.all_public_sources.json
+SYNC_MULTILINGUAL_PLAN ?= config/sync_plan.multilingual_als.json
 SYNC_ALL_PLAN ?= config/sync_plan.all_public_sources.json
 SYNC_CYCLES ?= 6
 SYNC_INTERVAL_SECONDS ?= 900
@@ -24,7 +25,7 @@ SYNC_ALL_INTERVAL_SECONDS ?= 0
 SYNC_STATS_LIMIT ?= 20
 HYPOTHESIS_LIMIT ?= 10
 
-.PHONY: help setup test lint init-db ingest-sample chat web-up web-down web-logs docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries
+.PHONY: help setup test lint init-db ingest-sample chat web-up web-down web-logs docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries test-extraction-fidelity train-eval-promote nightly-ops
 
 DOCKER_DEV_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 DOCKER_GPU_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml
@@ -65,6 +66,8 @@ help:
 	@echo "  validate-benchmarks   Validate curated benchmark JSONL files"
 	@echo "  merge-benchmarks      Merge curated benchmark templates into benchmark-ready files"
 	@echo "  test-regression-queries Run canonical regression query assertions"
+	@echo "  test-extraction-fidelity Run extraction fidelity pytest + CLI gate"
+	@echo "  nightly-ops           Chain sync-all-sources, graph-build, and worker tick"
 
 setup:
 	$(PIP) install --upgrade pip
@@ -185,3 +188,24 @@ merge-benchmarks:
 
 test-regression-queries:
 	$(PYTEST) -q tests/test_regression_queries.py
+
+test-extraction-fidelity:
+	$(PYTEST) -q tests/test_extraction_fidelity.py
+	$(ALS) extraction-fidelity-gate
+
+train-eval-promote:
+	$(ALS) export-finetune-data --db $(DB_PATH) --output-dir data/finetune --min-reliability 0.55 --min-source-reliability 0.6 --val-ratio 0.2 --split-strategy entity_outcome_hash --format messages --min-val-examples 5
+	$(ALS) train-model --db $(DB_PATH) --dataset-manifest data/finetune/manifest.json --base-model $(MODEL) --output-dir data/models --trainer-command "bash scripts/local_trainer.sh {train_file} {val_file} {output_dir} {base_model}"
+	$(ALS) benchmark-gate --db $(DB_PATH) --candidate-model-id $(MODEL) --input-path benchmarks/curated --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
+
+nightly-ops:
+	$(MAKE) sync-all-sources
+	$(ALS) graph-build --db $(DB_PATH)
+	@if [ -z "$$ALS_AUTOMATION_WORKER_TOKEN" ]; then \
+		echo "Skipping worker tick: set ALS_AUTOMATION_WORKER_TOKEN to enable automation worker POST."; \
+	else \
+		curl -fsS -X POST "http://localhost:8000/api/investigation/runs/worker/tick" \
+			-H "Authorization: Bearer $$ALS_AUTOMATION_WORKER_TOKEN" \
+			-H "Content-Type: application/json" \
+			-d '{}'; \
+	fi

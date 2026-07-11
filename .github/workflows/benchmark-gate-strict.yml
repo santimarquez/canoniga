@@ -38,6 +38,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .
 
+      - name: Run extraction fidelity gate
+        run: make test-extraction-fidelity
+
       - name: Run regression query gate
         run: make test-regression-queries
 

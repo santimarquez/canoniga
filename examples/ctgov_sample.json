@@ -4,13 +4,24 @@
     "source_id": "NCT99900001",
     "title": "Phase 2 trial of neuroinflammation modulator in ALS",
     "year": 2026,
-    "journal": "clinicaltrials.gov"
+    "journal": "clinicaltrials.gov",
+    "trial_status": "Recruiting",
+    "phase": "PHASE2",
+    "enrollment": 180,
+    "primary_endpoint": "Change in ALSFRS-R slope",
+    "intervention_arm": "Neuroinflammation modulator"
   },
   {
     "source": "ctgov",
     "source_id": "NCT99900002",
     "title": "Failed trial of protein aggregation inhibitor in ALS",
     "year": 2024,
-    "journal": "clinicaltrials.gov"
+    "journal": "clinicaltrials.gov",
+    "trial_status": "Terminated",
+    "phase": "PHASE2",
+    "enrollment": 96,
+    "primary_endpoint": "ALS functional rating scale",
+    "termination_reason": "Lack of efficacy",
+    "intervention_arm": "Protein aggregation inhibitor"
   }
 ]

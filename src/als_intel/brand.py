@@ -25,6 +25,10 @@ def logo_svg_markup() -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def favicon_link_tag() -> str:
+    return f'<link rel="icon" type="image/svg+xml" href="{LOGO_URL_PATH}" />'
+
+
 def logo_bytes() -> bytes:
     return logo_svg_markup().encode("utf-8")
 

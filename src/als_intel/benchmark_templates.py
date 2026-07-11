@@ -76,6 +76,26 @@ TEMPLATES: dict[str, list[dict[str, object]]] = {
             },
         }
     ],
+    "extraction_fidelity": [
+        {
+            "prompt": "Evaluate structured claim extraction fidelity against curated gold labels.",
+            "expected": {
+                "must_include": [
+                    "field accuracy >= 0.70",
+                    "structured claim text",
+                    "entity and effect_direction populated",
+                ]
+            },
+            "metadata": {
+                "family": "extraction_fidelity",
+                "claim_id": "EXTRACTION_FIDELITY_GOLD",
+                "contradiction_count": 0,
+                "reliability_score": 0.7,
+                "gold_path": "tests/fixtures/extraction_fidelity_gold.json",
+                "min_field_accuracy": 0.70,
+            },
+        }
+    ],
 }
 
 

@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import Request, urlopen
 
 from als_intel.auth import AuthService, build_auth_config
-from als_intel.brand import LOGO_URL_PATH, logo_bytes, logo_mime_type, render_inline_logo
+from als_intel.brand import LOGO_URL_PATH, favicon_link_tag, logo_bytes, logo_mime_type, render_inline_logo
 from als_intel.llm import LocalLLMError, build_grounded_prompt, generate_with_ollama, generate_with_ollama_stream
 from als_intel.store import EvidenceStore
 
@@ -47,6 +47,7 @@ PAGE_TEMPLATE = Template(
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MTVL AI</title>
+    $favicon_tag
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet" />
@@ -4313,6 +4314,7 @@ LOGIN_TEMPLATE = Template(
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MTVL AI | Authentication</title>
+    $favicon_tag
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Courier+Prime&display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
@@ -4772,6 +4774,7 @@ LEGAL_TEMPLATE = Template(
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>$page_title | MTVL AI</title>
+    $favicon_tag
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <style>
@@ -5221,18 +5224,55 @@ def _build_investigator_synthesis(
     contradiction_rows: list[dict[str, object]],
     require_review_signoff: bool,
     approved_claim_ids: set[str],
+    store: Any | None = None,
 ) -> dict[str, object]:
     from als_intel.agents.debate import build_debate_report
     from als_intel.agents.orchestrator import build_agent_report
+    from als_intel.agents.systems_biology import build_systems_biology_report
     from als_intel.hypothesis import build_hypothesis_queue
 
-    return {
-        "agent_report": build_agent_report(
+    systems_biology_report: dict[str, object] = {"count": 0, "items": []}
+    support_map: list[dict[str, object]] = []
+    neighbor_rows: list[dict[str, object]] = []
+    if store is not None:
+        support_map = store.graph_support_contradiction_map(limit=30)
+        for row in support_map:
+            entity = str(row.get("entity", "")).strip()
+            if not entity:
+                continue
+            for neighbor in store.graph_neighbors(entity, limit=6):
+                neighbor_rows.append(
+                    {
+                        "entity": entity,
+                        "neighbor_entity": str(neighbor.get("neighbor_label", "")),
+                        "neighbor_label": str(neighbor.get("neighbor_label", "")),
+                        "edge_type": str(neighbor.get("edge_type", "")),
+                        "neighbor_type": str(neighbor.get("neighbor_type", "")),
+                        "polarity": str(neighbor.get("polarity", "")),
+                        "weight": neighbor.get("weight", 0.0),
+                    }
+                )
+        systems_biology_report = build_systems_biology_report(
             evidence_rows=evidence_rows,
-            contradiction_rows=contradiction_rows,
-            require_review_signoff=require_review_signoff,
-            approved_claim_ids=approved_claim_ids,
-        ),
+            support_map_rows=support_map,
+            graph_neighbor_rows=neighbor_rows,
+            limit=5,
+        )
+
+    agent_report = build_agent_report(
+        evidence_rows=evidence_rows,
+        contradiction_rows=contradiction_rows,
+        require_review_signoff=require_review_signoff,
+        approved_claim_ids=approved_claim_ids,
+        support_map_rows=support_map or None,
+        graph_neighbor_rows=neighbor_rows or None,
+        systems_biology_limit=5,
+    )
+    if isinstance(agent_report.get("systems_biology_agent"), dict):
+        systems_biology_report = agent_report["systems_biology_agent"]
+
+    return {
+        "agent_report": agent_report,
         "hypothesis_queue": build_hypothesis_queue(
             evidence_rows=evidence_rows,
             contradiction_rows=contradiction_rows,
@@ -5244,6 +5284,7 @@ def _build_investigator_synthesis(
             evidence_rows=evidence_rows,
             contradiction_rows=contradiction_rows,
         ),
+        "systems_biology_report": systems_biology_report,
     }
 
 
@@ -5413,12 +5454,14 @@ def _build_autonomous_run_report(
     contradiction_rows: list[dict[str, object]],
     require_review_signoff: bool,
     approved_claim_ids: set[str],
+    store: EvidenceStore | None = None,
   ) -> dict[str, object]:
     composition = _build_investigator_synthesis(
       evidence_rows=evidence_rows,
       contradiction_rows=contradiction_rows,
       require_review_signoff=require_review_signoff,
       approved_claim_ids=approved_claim_ids,
+      store=store,
     )
     return {
       "objective": objective,
@@ -5449,6 +5492,7 @@ def _execute_investigation_run(
       contradiction_rows=contradictions,
       require_review_signoff=require_review_signoff,
       approved_claim_ids=approved_claim_ids,
+      store=store,
     )
     gate = _evaluate_report_gate(
       report_payload=report,
@@ -5636,6 +5680,40 @@ def _label_next_step_for_capability(step_text: str, language: str) -> tuple[str,
     return f"Requires external integration: {normalized}", True
 
 
+def _verify_cited_claim_ids(
+    *,
+    synthesis: dict[str, object],
+    evidence_rows: list[dict[str, object]],
+) -> tuple[dict[str, object], list[str]]:
+    guarded = dict(synthesis)
+    flags: list[str] = []
+    by_id = {
+        str(row.get("claim_id", "")).strip(): row
+        for row in evidence_rows
+        if str(row.get("claim_id", "")).strip()
+    }
+
+    for field in ("mentioned_claim_ids", "supporting_claim_ids"):
+        raw_ids = guarded.get(field) if isinstance(guarded.get(field), list) else []
+        verified: list[str] = []
+        for claim_id in raw_ids:
+            cid = str(claim_id).strip()
+            if not cid:
+                continue
+            row = by_id.get(cid)
+            if row is None:
+                flags.append(f"invalid_claim_id:{cid}")
+                continue
+            if not str(row.get("claim_text", "")).strip():
+                flags.append(f"empty_claim_text:{cid}")
+            verified.append(cid)
+        if verified:
+            guarded[field] = verified
+        elif field in guarded:
+            guarded[field] = []
+    return guarded, flags
+
+
 def _apply_response_guardrails(
     *,
     answer: str,
@@ -5712,6 +5790,13 @@ def _apply_response_guardrails(
       if was_labeled:
         flags.append("next_validation_step_external_labeled")
       guarded["next_validation_step"] = labeled_next_step
+
+    guarded, verification_flags = _verify_cited_claim_ids(
+        synthesis=guarded,
+        evidence_rows=evidence_rows,
+    )
+    flags.extend(verification_flags)
+    guarded["verification_flags"] = verification_flags
 
     return guarded, flags
 
@@ -5858,6 +5943,7 @@ def render_index_page(
         timeout_seconds=timeout_seconds,
       auth_enabled=("true" if auth_enabled else "false"),
       logo_html=render_inline_logo(height_px=28),
+      favicon_tag=favicon_link_tag(),
     )
     return html.encode("utf-8")
 
@@ -5867,6 +5953,7 @@ def render_login_page(*, auth_enabled: bool) -> bytes:
     auth_enabled=("true" if auth_enabled else "false"),
     current_year=str(datetime.now(timezone.utc).year),
     logo_html=render_inline_logo(height_px=48),
+    favicon_tag=favicon_link_tag(),
   )
   return html.encode("utf-8")
 
@@ -5886,11 +5973,19 @@ def render_privacy_policy_page() -> bytes:
 <p>Use HTTPS in production, secure cookie settings, and managed secrets for SMTP/API credentials. Restrict database access to trusted operators.</p>
 <h2 class="text-lg font-semibold text-slate-900 mt-6 mb-2">6. Open Source Disclaimer</h2>
 <p>MTVL AI is provided as open source software and can be self-hosted. Data governance obligations are determined by your organization and jurisdiction.</p>
+<h2 class="text-lg font-semibold text-slate-900 mt-6 mb-2">7. Governance and Oversight</h2>
+<p>Review the project mission and oversight model in the repository docs:</p>
+<ul>
+  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/MISSION.md" class="text-blue-900 hover:underline">Mission</a></li>
+  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/ETHICS_AND_OVERSIGHT.md" class="text-blue-900 hover:underline">Ethics and Oversight</a></li>
+  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/HUMAN_OVERSIGHT.md" class="text-blue-900 hover:underline">Human Oversight</a></li>
+</ul>
 """
   html = LEGAL_TEMPLATE.substitute(
     page_title="Privacy Policy",
     page_body=body,
     current_year=str(datetime.now(timezone.utc).year),
+    favicon_tag=favicon_link_tag(),
   )
   return html.encode("utf-8")
 
@@ -5908,11 +6003,19 @@ def render_terms_page() -> bytes:
 <p>The software is provided "as is" without warranties of any kind, to the maximum extent allowed by applicable law.</p>
 <h2 class="text-lg font-semibold text-slate-900 mt-6 mb-2">5. Limitation of Liability</h2>
 <p>Contributors and maintainers are not liable for direct or indirect damages arising from use, misuse, or inability to use the software.</p>
+<h2 class="text-lg font-semibold text-slate-900 mt-6 mb-2">6. Governance and Oversight</h2>
+<p>Ethical use expectations and human oversight requirements are documented in:</p>
+<ul>
+  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/MISSION.md" class="text-blue-900 hover:underline">Mission</a></li>
+  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/ETHICS_AND_OVERSIGHT.md" class="text-blue-900 hover:underline">Ethics and Oversight</a></li>
+  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/HUMAN_OVERSIGHT.md" class="text-blue-900 hover:underline">Human Oversight</a></li>
+</ul>
 """
   html = LEGAL_TEMPLATE.substitute(
     page_title="Terms of Service",
     page_body=body,
     current_year=str(datetime.now(timezone.utc).year),
+    favicon_tag=favicon_link_tag(),
   )
   return html.encode("utf-8")
 
@@ -6952,6 +7055,11 @@ class ChatHandler(BaseHTTPRequestHandler):
                     trace["evidence_count"] = len(filtered_rows)
                     trace["cited_evidence_count"] = len(cited_evidence_rows)
                     trace["guardrail_flags"] = guardrail_flags
+                    trace["verification_flags"] = (
+                        synthesis.get("verification_flags")
+                        if isinstance(synthesis.get("verification_flags"), list)
+                        else []
+                    )
                     trace["total_seconds"] = round(sum(float(v) for v in trace["phase_seconds"].values()), 4)
                     _append_query_telemetry(trace)
                     if current_user is not None:
@@ -7874,6 +7982,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                     contradiction_rows=contradictions,
                     require_review_signoff=require_review_signoff,
                     approved_claim_ids=approved_claim_ids,
+                    store=store,
                 )
                 _json_response(
                     self,
@@ -7958,6 +8067,11 @@ class ChatHandler(BaseHTTPRequestHandler):
             trace["evidence_count"] = len(filtered_rows)
             trace["cited_evidence_count"] = len(cited_evidence_rows)
             trace["guardrail_flags"] = guardrail_flags
+            trace["verification_flags"] = (
+                synthesis.get("verification_flags")
+                if isinstance(synthesis.get("verification_flags"), list)
+                else []
+            )
             trace["total_seconds"] = round(sum(float(v) for v in trace["phase_seconds"].values()), 4)
             _append_query_telemetry(trace)
             if current_user is not None:

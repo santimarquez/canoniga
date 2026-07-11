@@ -27,6 +27,9 @@ jobs:
       - name: Run tests
         run: pytest -q
 
+      - name: Run extraction fidelity gate
+        run: make test-extraction-fidelity
+
       - name: Run regression query gate
         run: make test-regression-queries
 

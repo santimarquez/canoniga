@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from als_intel.extractors.base import DataSourceExtractor
-from als_intel.extractors.normalization import record_from_doc
+from als_intel.extractors.claim_builder import build_record_from_doc
 
 
 class ClinicalTrialsExtractor(DataSourceExtractor):
@@ -25,4 +25,4 @@ class ClinicalTrialsExtractor(DataSourceExtractor):
         return docs, effective_query
 
     def normalize_doc(self, doc: dict[str, Any]):
-        return record_from_doc(doc)
+        return build_record_from_doc(doc)

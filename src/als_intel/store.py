@@ -461,6 +461,45 @@ class EvidenceStore:
             )
         return output
 
+    def attach_extraction_provenance(
+        self,
+        rows: list[dict[str, str | int | float | bool]],
+    ) -> list[dict[str, object]]:
+        if not rows:
+            return rows
+        claim_ids = [str(row.get("claim_id", "")).strip() for row in rows if str(row.get("claim_id", "")).strip()]
+        if not claim_ids:
+            return rows
+        placeholders = ", ".join(["?"] * len(claim_ids))
+        query = f"""
+            SELECT claim_id, metadata_json
+            FROM evidence_source_metadata
+            WHERE claim_id IN ({placeholders})
+        """
+        provenance_by_claim: dict[str, dict[str, object]] = {}
+        with self._connect() as conn:
+            fetched = conn.execute(query, tuple(claim_ids)).fetchall()
+        for claim_id, metadata_json in fetched:
+            try:
+                metadata = json.loads(str(metadata_json or "{}"))
+            except json.JSONDecodeError:
+                metadata = {}
+            extracted = metadata.get("extracted_claim")
+            if isinstance(extracted, dict):
+                provenance_by_claim[str(claim_id)] = extracted
+
+        enriched: list[dict[str, object]] = []
+        for row in rows:
+            updated = dict(row)
+            claim_id = str(row.get("claim_id", "")).strip()
+            if claim_id in provenance_by_claim:
+                updated["extraction_provenance"] = provenance_by_claim[claim_id]
+            enriched.append(updated)
+        return enriched
+
+    def all_evidence_with_provenance(self) -> list[dict[str, object]]:
+        return self.attach_extraction_provenance(self.all_evidence())
+
     def init_db(self) -> None:
         with self._connect() as conn:
             conn.executescript(SCHEMA_SQL)
@@ -2771,6 +2810,7 @@ class EvidenceStore:
             "success_rate": round((success_count / total), 4) if total else 0.0,
             "quality_gate_pass_rate": round((gate_passes / total), 4) if total else 0.0,
             "replay_stability_rate": round((replay_stable / replay_total), 4) if replay_total else 1.0,
+            "weekly_replay_stability_7d": self._weekly_replay_stability(user_id=user_id, days=7),
             "median_time_to_report_seconds": round(median_time_to_report_seconds, 2),
             "retry_rate": round((retries / total), 4) if total else 0.0,
             "manual_intervention_rate": round((manual_approvals / total), 4) if total else 0.0,
@@ -2778,6 +2818,32 @@ class EvidenceStore:
             "evidence_freshness_compliance": round((freshness_passes / total), 4) if total else 0.0,
             "export_delivery_rate": round((exports_delivered / total), 4) if total else 0.0,
         }
+
+    def _weekly_replay_stability(self, *, user_id: str, days: int = 7) -> float:
+        safe_days = max(1, min(int(days or 7), 30))
+        cutoff_iso = (datetime.now(timezone.utc) - timedelta(days=safe_days)).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT replay_of_run_id, replay_diff_json
+                FROM investigation_runs
+                WHERE user_id = ? AND created_at >= ? AND replay_of_run_id IS NOT NULL AND replay_of_run_id != ''
+                """,
+                (user_id, cutoff_iso),
+            ).fetchall()
+        if not rows:
+            return 1.0
+        stable = 0
+        for replay_of_run_id, replay_diff_json in rows:
+            if not str(replay_of_run_id or "").strip():
+                continue
+            try:
+                replay_diff = json.loads(str(replay_diff_json or "{}"))
+            except json.JSONDecodeError:
+                replay_diff = {}
+            if not bool(replay_diff.get("quality_gate_changed", True)):
+                stable += 1
+        return round(stable / len(rows), 4)
 
     def list_investigation_review_queue(
         self,

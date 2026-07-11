@@ -123,6 +123,12 @@ def claim_id(source: str, source_id: str, title: str) -> str:
 
 
 def record_from_doc(doc: dict[str, Any]) -> EvidenceRecord:
+    from als_intel.extractors.claim_builder import build_record_from_doc
+
+    return build_record_from_doc(doc)
+
+
+def record_from_doc_legacy(doc: dict[str, Any]) -> EvidenceRecord:
     source = str(doc.get("source", "unknown"))
     title = str(doc.get("title", "")).strip() or "Untitled record"
     source_id = str(doc.get("source_id", "")).strip()

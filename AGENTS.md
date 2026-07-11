@@ -12,6 +12,8 @@ This file orients AI agents working in the **canoniga** repository (`als-intel` 
 
 Design principles: **local-first**, **inspectable heuristics**, **human review gates**, **benchmark-gated model evaluation**.
 
+Governance docs: [docs/MISSION.md](docs/MISSION.md), [docs/ETHICS_AND_OVERSIGHT.md](docs/ETHICS_AND_OVERSIGHT.md), [docs/HUMAN_OVERSIGHT.md](docs/HUMAN_OVERSIGHT.md). Roadmap tracking: [ai/plans/SCIENTIFIC_FIDELITY_ROADMAP.md](ai/plans/SCIENTIFIC_FIDELITY_ROADMAP.md).
+
 ## Architecture
 
 ```mermaid

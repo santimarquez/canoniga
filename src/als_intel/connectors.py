@@ -271,9 +271,56 @@ def fetch_ctgov(query: str, max_results: int = 20, from_file: str | None = None)
         protocol = s.get("protocolSection", {})
         id_module = protocol.get("identificationModule", {})
         status_module = protocol.get("statusModule", {})
+        design_module = protocol.get("designModule", {})
+        outcomes_module = protocol.get("outcomesModule", {})
+        arms_module = protocol.get("armsInterventionsModule", {})
         title = id_module.get("briefTitle", "")
         nct_id = id_module.get("nctId", "")
         start_date = status_module.get("startDateStruct", {}).get("date", "0")
+        phases = design_module.get("phases", [])
+        phase = ", ".join(str(p) for p in phases if str(p).strip())
+        enrollment_info = design_module.get("enrollmentInfo", {})
+        enrollment = enrollment_info.get("count")
+        primary_outcomes = outcomes_module.get("primaryOutcomes", [])
+        primary_endpoint = ""
+        if isinstance(primary_outcomes, list) and primary_outcomes:
+            primary_endpoint = str(primary_outcomes[0].get("measure", "") or "")
+        arms = arms_module.get("armGroups", [])
+        intervention_arm = ""
+        if isinstance(arms, list) and arms:
+            intervention_arm = str(arms[0].get("label", "") or arms[0].get("type", "") or "")
+        primary_endpoint_result = ""
+        adverse_events_summary = ""
+        results_section = s.get("resultsSection", {}) if isinstance(s.get("resultsSection"), dict) else {}
+        if results_section:
+            outcome_module = results_section.get("outcomeMeasuresModule", {})
+            if isinstance(outcome_module, dict):
+                measures = outcome_module.get("outcomeMeasures", [])
+                if isinstance(measures, list):
+                    for measure in measures:
+                        if not isinstance(measure, dict):
+                            continue
+                        if str(measure.get("type", "")).upper() == "PRIMARY":
+                            groups = measure.get("analyses", []) or measure.get("classes", [])
+                            if isinstance(groups, list) and groups:
+                                first = groups[0]
+                                if isinstance(first, dict):
+                                    primary_endpoint_result = str(
+                                        first.get("pValue", "")
+                                        or first.get("paramValue", "")
+                                        or first.get("groupDescription", "")
+                                        or first.get("title", "")
+                                        or ""
+                                    ).strip()
+                            if not primary_endpoint_result:
+                                primary_endpoint_result = str(measure.get("title", "") or "").strip()
+                            break
+            adverse_module = results_section.get("adverseEventsModule", {})
+            if isinstance(adverse_module, dict):
+                freq = adverse_module.get("frequencyThreshold", "")
+                desc = adverse_module.get("description", "")
+                adverse_events_summary = str(desc or freq or "").strip()
+
         docs.append(
             {
                 "source": "ctgov",
@@ -281,6 +328,14 @@ def fetch_ctgov(query: str, max_results: int = 20, from_file: str | None = None)
                 "title": title,
                 "year": int(str(start_date)[:4] or 0),
                 "journal": "clinicaltrials.gov",
+                "trial_status": str(status_module.get("overallStatus", "") or ""),
+                "phase": phase,
+                "enrollment": enrollment,
+                "primary_endpoint": primary_endpoint,
+                "primary_endpoint_result": primary_endpoint_result,
+                "adverse_events_summary": adverse_events_summary,
+                "termination_reason": str(status_module.get("whyStopped", "") or ""),
+                "intervention_arm": intervention_arm,
             }
         )
     return docs
@@ -335,6 +390,7 @@ def fetch_pmc(query: str, max_results: int = 20, from_file: str | None = None) -
         title = str(row.get("title", "") or "")
         journal = str(row.get("journalTitle", "") or "")
         pub_year = int(str(row.get("pubYear", "0") or "0")[:4] or 0)
+        abstract = str(row.get("abstractText", "") or row.get("abstract", "") or "").strip()
         docs.append(
             {
                 "source": "pmc",
@@ -342,6 +398,7 @@ def fetch_pmc(query: str, max_results: int = 20, from_file: str | None = None) -
                 "title": title,
                 "year": pub_year,
                 "journal": journal,
+                "abstract": abstract,
             }
         )
     return docs
@@ -414,6 +471,9 @@ def fetch_ncbi_gene(query: str, max_results: int = 20, from_file: str | None = N
         summary = str(row.get("summary", "") or "")
         if summary:
             title = f"{title}: {summary}" if title else summary
+        gene_symbol = str(row.get("name", "") or "").strip()
+        if ":" in title:
+            gene_symbol = title.split(":", 1)[0].strip() or gene_symbol
         docs.append(
             {
                 "source": "ncbi_gene",
@@ -421,6 +481,8 @@ def fetch_ncbi_gene(query: str, max_results: int = 20, from_file: str | None = N
                 "title": title or str(row.get("name", "") or f"Gene {gene_id}"),
                 "year": 2000,
                 "journal": "NCBI Gene",
+                "gene_symbol": gene_symbol,
+                "summary": summary,
             }
         )
     return docs
@@ -479,6 +541,8 @@ def fetch_uniprot(query: str, max_results: int = 20, from_file: str | None = Non
                 "title": title,
                 "year": pub_year,
                 "journal": "UniProtKB",
+                "gene_symbol": gene_name,
+                "protein_name": protein_name,
             }
         )
     return docs
@@ -537,6 +601,8 @@ def fetch_go(query: str, max_results: int = 20, from_file: str | None = None) ->
                 "title": title or f"GO term {go_id}",
                 "year": 2000,
                 "journal": "Gene Ontology",
+                "ontology_term": name,
+                "definition": definition,
             }
         )
     return docs
@@ -595,6 +661,8 @@ def fetch_reactome(query: str, max_results: int = 20, from_file: str | None = No
                 "title": f"{name} ({exact_type})" if name and exact_type else (name or f"Reactome entry {st_id}"),
                 "year": 2000,
                 "journal": "Reactome",
+                "pathway_name": name,
+                "pathway_type": exact_type,
             }
         )
     return docs
@@ -671,6 +739,7 @@ def fetch_geo(query: str, max_results: int = 20, from_file: str | None = None) -
         year = int(pd[:4] or "0") if pd else 2000
         if year <= 0:
             year = 2000
+        platform = str(row.get("gpl", "") or row.get("platform", "") or "").strip()
         docs.append(
             {
                 "source": "geo",
@@ -678,6 +747,8 @@ def fetch_geo(query: str, max_results: int = 20, from_file: str | None = None) -
                 "title": title,
                 "year": year,
                 "journal": "GEO",
+                "platform": platform,
+                "study_type": "transcriptomic",
             }
         )
     return docs
@@ -736,6 +807,7 @@ def fetch_arrayexpress(query: str, max_results: int = 20, from_file: str | None 
                 "title": title,
                 "year": year,
                 "journal": "ArrayExpress",
+                "study_type": "transcriptomic",
             }
         )
     return docs
@@ -766,6 +838,7 @@ def fetch_kegg(query: str, max_results: int = 20, from_file: str | None = None) 
                 "title": title or f"KEGG pathway {source_id}",
                 "year": 2000,
                 "journal": "KEGG",
+                "pathway_name": title.split(" - ", 1)[0].strip() if " - " in title else title,
             }
         )
     return docs
@@ -825,6 +898,7 @@ def fetch_pride(query: str, max_results: int = 20, from_file: str | None = None)
                 "title": title,
                 "year": year,
                 "journal": "PRIDE",
+                "study_type": "proteomic",
             }
         )
     return docs
@@ -870,6 +944,7 @@ def fetch_metabolomics_workbench(query: str, max_results: int = 20, from_file: s
                 "title": title or f"Metabolomics Workbench study {study_id or 'unknown'}",
                 "year": year,
                 "journal": "Metabolomics Workbench",
+                "study_type": "metabolomic",
             }
         )
     return docs
@@ -926,6 +1001,8 @@ def fetch_chembl(query: str, max_results: int = 20, from_file: str | None = None
                 "title": pref_name or f"ChEMBL compound {chembl_id}",
                 "year": year,
                 "journal": "ChEMBL",
+                "drug_name": pref_name,
+                "first_approval": year_value if isinstance(year_value, int) else None,
             }
         )
     return docs
@@ -936,8 +1013,8 @@ def fetch_open_targets(query: str, max_results: int = 20, from_file: str | None 
     if from_file:
         return json.loads(Path(from_file).read_text(encoding="utf-8"))
 
-        target = _target_limit(max_results)
-        size = 500
+    target = _target_limit(max_results)
+    size = 500
     graphql_query = """
         query SearchEntities($queryString: String!, $size: Int!, $index: Int!) {
             search(queryString: $queryString, page: {index: $index, size: $size}) {
@@ -996,6 +1073,8 @@ def fetch_open_targets(query: str, max_results: int = 20, from_file: str | None 
                 "title": title or f"Open Targets entity {entity_id}",
                 "year": 2000,
                 "journal": "Open Targets",
+                "target_name": name if entity.lower() == "target" else "",
+                "entity_type": entity.lower(),
             }
         )
     return docs
@@ -1057,6 +1136,8 @@ def fetch_fda_labels(query: str, max_results: int = 20, from_file: str | None = 
                     "title": title,
                     "year": 2000,
                     "journal": "openFDA Drug Labels",
+                    "drug_name": label_name.strip(),
+                    "indication": purpose_text.strip(),
                 }
             )
             page_added += 1

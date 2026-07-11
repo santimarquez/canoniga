@@ -9,7 +9,8 @@ from als_intel.agents.debate import build_debate_report
 from als_intel.agents.historical import build_failure_atlas
 from als_intel.agents.hypothesis_graph import build_graph_gap_hypotheses
 from als_intel.agents.orchestrator import build_agent_report
-from als_intel.agents.repurposing import build_repurposing_report
+from als_intel.agents.systems_biology import build_systems_biology_report
+from als_intel.extraction_fidelity import evaluate_extraction_fidelity
 from als_intel.benchmark import build_benchmark_pack
 from als_intel.benchmark_gate import run_benchmark_gate
 from als_intel.benchmark_merge import merge_benchmark_templates
@@ -645,6 +646,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only include cards backed by at least one approved supporting claim",
     )
 
+    systems_bio = subparsers.add_parser(
+        "systems-biology-agent",
+        help="Run Systems Biology Agent over pathway and graph neighborhoods",
+    )
+    systems_bio.add_argument("--db", required=True, help="Path to sqlite database")
+    systems_bio.add_argument("--entity", required=False, help="Optional entity filter")
+    systems_bio.add_argument("--limit", required=False, type=int, default=10, help="Max pathway cards")
+
+    extraction_gate = subparsers.add_parser(
+        "extraction-fidelity-gate",
+        help="Evaluate structured extraction fidelity against curated gold claims",
+    )
+    extraction_gate.add_argument(
+        "--gold-path",
+        required=False,
+        help="Optional path to extraction fidelity gold JSON",
+    )
+
     return parser
 
 
@@ -1006,7 +1025,7 @@ def main() -> None:
 
     if args.command == "failure-atlas":
         store = EvidenceStore(args.db)
-        print(json.dumps(build_failure_atlas(store.all_evidence()), indent=2))
+        print(json.dumps(build_failure_atlas(store.all_evidence_with_provenance()), indent=2))
         return
 
     if args.command == "debate-report":
@@ -1023,7 +1042,7 @@ def main() -> None:
         store = EvidenceStore(args.db)
         timeline = store.consensus_timeline(entity=args.entity, limit=args.limit)
         debate = build_debate_report(store.all_evidence(), store.contradiction_pairs())
-        failure = build_failure_atlas(store.all_evidence())
+        failure = build_failure_atlas(store.all_evidence_with_provenance())
         metrics = compute_quality_metrics(timeline, debate, failure)
         print(json.dumps(metrics, indent=2))
         return
@@ -1066,7 +1085,7 @@ def main() -> None:
         if store.knowledge_graph_overview()["edges"] == 0:
             store.rebuild_knowledge_graph()
         support_map = store.graph_support_contradiction_map(entity=args.entity, limit=args.limit)
-        failure = build_failure_atlas(store.all_evidence())
+        failure = build_failure_atlas(store.all_evidence_with_provenance())
         report = build_clinical_trial_analysis(store.all_evidence(), support_map, failure)
         print(json.dumps(report, indent=2))
         return
@@ -1076,7 +1095,7 @@ def main() -> None:
         if store.knowledge_graph_overview()["edges"] == 0:
             store.rebuild_knowledge_graph()
         support_map = store.graph_support_contradiction_map(entity=args.entity, limit=args.limit)
-        failure = build_failure_atlas(store.all_evidence())
+        failure = build_failure_atlas(store.all_evidence_with_provenance())
         report = build_repurposing_report(store.all_evidence(), support_map, failure)
         print(json.dumps(report, indent=2))
         return
@@ -1096,6 +1115,39 @@ def main() -> None:
             approved_claim_ids=approved,
         )
         print(json.dumps(cards, indent=2))
+        return
+
+    if args.command == "systems-biology-agent":
+        store = EvidenceStore(args.db)
+        if store.knowledge_graph_overview()["edges"] == 0:
+            store.rebuild_knowledge_graph()
+        support_map = store.graph_support_contradiction_map(entity=args.entity, limit=max(args.limit * 5, 20))
+        neighbor_rows: list[dict[str, object]] = []
+        for row in support_map:
+            entity = str(row.get("entity", "")).strip()
+            if not entity:
+                continue
+            for neighbor in store.graph_neighbors(entity, limit=8):
+                neighbor_rows.append(
+                    {
+                        "entity": entity,
+                        "neighbor_entity": str(neighbor.get("neighbor_label", "")),
+                    }
+                )
+        report = build_systems_biology_report(
+            evidence_rows=store.all_evidence(),
+            support_map_rows=support_map,
+            graph_neighbor_rows=neighbor_rows,
+            limit=args.limit,
+        )
+        print(json.dumps(report, indent=2))
+        return
+
+    if args.command == "extraction-fidelity-gate":
+        report = evaluate_extraction_fidelity(gold_path=getattr(args, "gold_path", None))
+        print(json.dumps(report, indent=2))
+        if not bool(report.get("passed")):
+            raise SystemExit(1)
         return
 
     parser.error("Unknown command")

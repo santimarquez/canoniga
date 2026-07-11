@@ -72,6 +72,8 @@ def _upsert_source_provenance(
     source_title: str,
     source_journal: str,
     source_year: int,
+    extracted_claim: dict[str, object] | None = None,
+    extraction_method: str = "",
 ) -> None:
     extracted_at = datetime.now(timezone.utc).isoformat()
     metadata = {
@@ -82,6 +84,10 @@ def _upsert_source_provenance(
         "source_license": "unknown",
         "ingestion_mode": "incremental_sync",
     }
+    if extracted_claim:
+        metadata["extracted_claim"] = extracted_claim
+    if extraction_method:
+        metadata["extraction_method"] = extraction_method
     _assert_provenance_contract(metadata)
     store.upsert_evidence_source_metadata(
         claim_id=claim_id,
@@ -152,6 +158,9 @@ def run_incremental_sync(
             source_score = source_reliability_score(record)
             action = store.upsert_evidence(record, breakdown, source_score, run_id=run_id, source_name=source_normalized)
             source_id = str(doc.get("source_id", "") or record.source_doi or "").strip()
+            from als_intel.extractors.claim_builder import build_structured_claim
+
+            structured = build_structured_claim(doc)
             _upsert_source_provenance(
                 store=store,
                 source_name=source_normalized,
@@ -162,6 +171,8 @@ def run_incremental_sync(
                 source_title=record.source_title,
                 source_journal=str(doc.get("journal", "") or ""),
                 source_year=int(doc.get("year", 0) or 0),
+                extracted_claim=structured.provenance if structured is not None else None,
+                extraction_method=structured.extraction_method if structured is not None else "",
             )
             if action == "inserted":
                 inserted += 1
