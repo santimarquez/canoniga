@@ -176,3 +176,8 @@ File-specific guidance lives in `.cursor/rules/`:
 - `testing.mdc` — test conventions
 - `webui.mdc` — monolithic web UI guidance
 - `extractors-agents.mdc` — agent and extractor extension patterns
+- `emails.mdc` — email template conventions
+
+## Email templates
+
+Branded HTML emails live in [`src/als_intel/emails/`](src/als_intel/emails/). Read [`src/als_intel/emails/README.md`](src/als_intel/emails/README.md) before adding or changing templates. Always ship HTML + plain-text multipart messages; preview locally in Mailpit at http://localhost:8025 (`make docker-dev-up`).

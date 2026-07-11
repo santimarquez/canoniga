@@ -4405,26 +4405,39 @@ LOGIN_TEMPLATE = Template(
             <h1 class="text-xl font-semibold text-slate-900 tracking-tight">MTVL AI</h1>
             <p class="text-xs font-semibold text-blue-900 uppercase tracking-widest">Open Source Intelligence</p>
           </div>
-          <div class="flex flex-col gap-1 text-center">
+          <div id="loginIntro" class="flex flex-col gap-1 text-center">
             <h2 class="text-2xl font-semibold text-slate-900">Sign In</h2>
-            <p class="text-sm text-slate-600 px-4">Enter your email to receive a magic link.</p>
+            <p id="loginIntroText" class="text-sm text-slate-600 px-4">Enter your email to receive a magic link.</p>
           </div>
-          <form id="loginForm" class="flex flex-col gap-4">
-            <div class="flex flex-col gap-1">
-              <label class="text-xs font-medium text-slate-600 ml-1" for="loginEmail">INSTITUTIONAL EMAIL</label>
-              <div class="relative">
-                <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]">mail</span>
-                <input id="loginEmail" class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-sm" placeholder="name@university.edu" required type="email" />
+          <div id="loginRequestPanel" class="flex flex-col gap-4">
+            <form id="loginForm" class="flex flex-col gap-4">
+              <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium text-slate-600 ml-1" for="loginEmail">Email</label>
+                <div class="relative">
+                  <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]">mail</span>
+                  <input id="loginEmail" class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-sm" placeholder="name@university.edu" required type="email" />
+                </div>
               </div>
+              <button id="requestMagicLink" class="w-full bg-blue-900 hover:bg-blue-700 text-white text-sm font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 group shadow-sm active:scale-[0.98]" type="submit">
+                Send Magic Link
+                <span class="material-symbols-outlined text-[20px] transition-transform group-hover:translate-x-1">arrow_forward</span>
+              </button>
+            </form>
+            <div id="loginStatus" class="text-xs text-slate-500 text-center">Use your email to receive a secure sign-in link.</div>
+          </div>
+          <div id="loginResultPanel" class="hidden flex flex-col gap-4 text-center">
+            <div id="loginResultIconWrap" class="w-12 h-12 mx-auto flex items-center justify-center rounded-full">
+              <span id="loginResultIcon" class="material-symbols-outlined !text-[28px]">mark_email_read</span>
             </div>
-            <button id="requestMagicLink" class="w-full bg-blue-900 hover:bg-blue-700 text-white text-sm font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 group shadow-sm active:scale-[0.98]" type="submit">
-              Send Magic Link
-              <span class="material-symbols-outlined text-[20px] transition-transform group-hover:translate-x-1">arrow_forward</span>
-            </button>
-          </form>
-          <div id="loginStatus" class="text-xs text-slate-500 text-center">Use your email to receive a secure sign-in link.</div>
-          <div id="loginDevLinkWrap" class="text-xs hidden text-center">
-            <a id="loginDevLink" href="#" target="_blank" rel="noopener noreferrer" class="text-blue-900 underline">Open dev magic link</a>
+            <div class="flex flex-col gap-2">
+              <h3 id="loginResultTitle" class="text-lg font-semibold text-slate-900">Check your email</h3>
+              <p id="loginResultMessage" class="text-sm text-slate-600 px-2"></p>
+              <p id="loginResultHint" class="text-xs text-slate-500 px-2"></p>
+            </div>
+            <div id="loginDevLinkWrap" class="text-xs hidden text-center">
+              <a id="loginDevLink" href="#" target="_blank" rel="noopener noreferrer" class="text-blue-900 underline">Open dev magic link</a>
+            </div>
+            <button id="loginTryAgain" type="button" class="text-sm font-medium text-blue-900 hover:underline">Use a different email</button>
           </div>
         </div>
       </main>
@@ -4468,6 +4481,72 @@ LOGIN_TEMPLATE = Template(
         el.textContent = String(text || '');
         el.classList.toggle('text-red-700', Boolean(isError));
         el.classList.toggle('text-slate-500', !isError);
+      }
+
+      function showLoginRequestPanel() {
+        const requestPanel = byId('loginRequestPanel');
+        const resultPanel = byId('loginResultPanel');
+        const intro = byId('loginIntro');
+        const introText = byId('loginIntroText');
+        if (requestPanel) requestPanel.classList.remove('hidden');
+        if (resultPanel) resultPanel.classList.add('hidden');
+        if (intro) intro.classList.remove('hidden');
+        if (introText) introText.textContent = 'Enter your email to receive a magic link.';
+        setLoginStatus('Use your email to receive a secure sign-in link.', false);
+      }
+
+      function showLoginResultPanel({ title, message, hint = '', isError = false, devLink = '' }) {
+        const requestPanel = byId('loginRequestPanel');
+        const resultPanel = byId('loginResultPanel');
+        const intro = byId('loginIntro');
+        const iconWrap = byId('loginResultIconWrap');
+        const icon = byId('loginResultIcon');
+        const titleEl = byId('loginResultTitle');
+        const messageEl = byId('loginResultMessage');
+        const hintEl = byId('loginResultHint');
+        const tryAgain = byId('loginTryAgain');
+        const devWrap = byId('loginDevLinkWrap');
+        const devLinkEl = byId('loginDevLink');
+        if (requestPanel) requestPanel.classList.add('hidden');
+        if (resultPanel) resultPanel.classList.remove('hidden');
+        if (intro) intro.classList.add('hidden');
+        if (iconWrap) {
+          iconWrap.classList.toggle('bg-emerald-100', !isError);
+          iconWrap.classList.toggle('text-emerald-700', !isError);
+          iconWrap.classList.toggle('bg-red-100', isError);
+          iconWrap.classList.toggle('text-red-700', isError);
+        }
+        if (icon) icon.textContent = isError ? 'error' : 'mark_email_read';
+        if (titleEl) titleEl.textContent = String(title || (isError ? 'Could not send email' : 'Check your email'));
+        if (messageEl) messageEl.textContent = String(message || '');
+        if (hintEl) {
+          hintEl.textContent = String(hint || '');
+          hintEl.classList.toggle('hidden', !hint);
+        }
+        if (tryAgain) tryAgain.classList.toggle('hidden', titleEl && titleEl.textContent === 'Verifying sign-in link');
+        if (devWrap && devLinkEl) {
+          if (!isError && devLink) {
+            devLinkEl.href = String(devLink);
+            devWrap.classList.remove('hidden');
+          } else {
+            devWrap.classList.add('hidden');
+          }
+        }
+      }
+
+      function setLoginSendingState() {
+        const requestPanel = byId('loginRequestPanel');
+        const resultPanel = byId('loginResultPanel');
+        const submitButton = byId('requestMagicLink');
+        if (requestPanel) requestPanel.classList.remove('hidden');
+        if (resultPanel) resultPanel.classList.add('hidden');
+        if (submitButton) submitButton.disabled = true;
+        setLoginStatus('Sending magic link...', false);
+      }
+
+      function clearLoginSendingState() {
+        const submitButton = byId('requestMagicLink');
+        if (submitButton) submitButton.disabled = false;
       }
 
       function formatCompactCount(value) {
@@ -4597,6 +4676,7 @@ LOGIN_TEMPLATE = Template(
           setLoginStatus('Email is required.', true);
           return;
         }
+        setLoginSendingState();
         try {
           const resp = await fetch('/api/auth/request-link', {
             method: 'POST',
@@ -4605,19 +4685,28 @@ LOGIN_TEMPLATE = Template(
           });
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.error || 'Could not send magic link');
-          setLoginStatus('Magic link sent. Check your inbox.');
-          const wrap = byId('loginDevLinkWrap');
-          const link = byId('loginDevLink');
-          if (wrap && link) {
-            if (data.magic_link) {
-              link.href = String(data.magic_link);
-              wrap.classList.remove('hidden');
-            } else {
-              wrap.classList.add('hidden');
-            }
-          }
+          const deliveryMode = String(data.delivery_mode || 'smtp');
+          const devLink = data.magic_link ? String(data.magic_link) : '';
+          showLoginResultPanel({
+            title: 'Check your email',
+            message: deliveryMode === 'smtp'
+              ? 'We sent a secure sign-in link to ' + email + '.'
+              : 'Your sign-in link is ready for ' + email + '.',
+            hint: deliveryMode === 'smtp'
+              ? 'Open your inbox and click the link to continue. It expires in 15 minutes. Check spam if you do not see it.'
+              : 'Use the dev link below to sign in during local testing.',
+            isError: false,
+            devLink,
+          });
         } catch (error) {
-          setLoginStatus(String(error), true);
+          showLoginResultPanel({
+            title: 'Could not send email',
+            message: String(error),
+            hint: 'Please try again. If the problem continues, contact your administrator.',
+            isError: true,
+          });
+        } finally {
+          clearLoginSendingState();
         }
       }
 
@@ -4625,7 +4714,12 @@ LOGIN_TEMPLATE = Template(
         const params = new URLSearchParams(window.location.search || '');
         const token = String(params.get('magic_token') || '').trim();
         if (!token) return;
-        setLoginStatus('Verifying magic link...');
+        showLoginResultPanel({
+          title: 'Verifying sign-in link',
+          message: 'Please wait while we verify your magic link.',
+          hint: '',
+          isError: false,
+        });
         try {
           const resp = await fetch('/api/auth/verify-link', {
             method: 'POST',
@@ -4636,7 +4730,12 @@ LOGIN_TEMPLATE = Template(
           if (!resp.ok) throw new Error(data.error || 'Could not verify magic link');
           window.location.replace('/');
         } catch (error) {
-          setLoginStatus(String(error), true);
+          showLoginResultPanel({
+            title: 'Sign-in link invalid',
+            message: String(error),
+            hint: 'Request a new magic link to try again.',
+            isError: true,
+          });
         }
       }
 
@@ -4645,6 +4744,13 @@ LOGIN_TEMPLATE = Template(
         form.addEventListener('submit', (event) => {
           event.preventDefault();
           requestMagicLink();
+        });
+      }
+
+      const tryAgainButton = byId('loginTryAgain');
+      if (tryAgainButton) {
+        tryAgainButton.addEventListener('click', () => {
+          showLoginRequestPanel();
         });
       }
 

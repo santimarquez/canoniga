@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from als_intel.webui import (
+    LOGIN_TEMPLATE,
     PAGE_TEMPLATE,
     _apply_evidence_filters,
     _apply_response_guardrails,
@@ -243,3 +244,11 @@ def test_rank_cited_evidence_rows_prioritizes_reliability_and_recency() -> None:
     ranked = _rank_cited_evidence_rows(rows)
 
     assert [row["claim_id"] for row in ranked][:2] == ["C_NEW_HIGH", "C_MID"]
+
+
+def test_login_template_includes_magic_link_confirmation_panel() -> None:
+    html = LOGIN_TEMPLATE.substitute(auth_enabled="true", current_year="2026")
+    assert 'id="loginRequestPanel"' in html
+    assert 'id="loginResultPanel"' in html
+    assert "Check your email" in html
+    assert "showLoginResultPanel" in html

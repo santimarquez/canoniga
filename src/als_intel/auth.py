@@ -217,15 +217,20 @@ class AuthService:
         if self.config.dev_mode:
             return {"sent": True, "mode": "dev", "magic_link": magic_link}
 
+        from als_intel.emails import build_magic_link_email
+
+        content = build_magic_link_email(
+            magic_link=magic_link,
+            expires_minutes=self.config.magic_link_ttl_seconds // 60,
+            recipient_email=email,
+        )
+
         msg = EmailMessage()
-        msg["Subject"] = "Your MTVL AI sign-in link"
+        msg["Subject"] = content.subject
         msg["From"] = self.config.smtp_from
         msg["To"] = email
-        msg.set_content(
-            "Use this secure sign-in link to access MTVL AI. "
-            f"This link expires in {self.config.magic_link_ttl_seconds // 60} minutes.\n\n"
-            f"{magic_link}\n"
-        )
+        msg.set_content(content.plain_text)
+        msg.add_alternative(content.html, subtype="html")
 
         if not self.config.smtp_host:
             raise ValueError("SMTP host is not configured")

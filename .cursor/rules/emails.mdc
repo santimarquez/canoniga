@@ -1,0 +1,16 @@
+---
+description: Email template conventions for MTVL AI
+globs: src/als_intel/emails/**
+alwaysApply: false
+---
+
+# Email templates
+
+Read `src/als_intel/emails/README.md` before adding or changing templates.
+
+- Use `theme.py` constants — never hardcode brand colors in templates
+- Wrap HTML in `render_email_layout()` — never build full HTML documents in template files
+- Every template returns `EmailContent` with both `plain_text` and `html`
+- Table-based markup; inline styles only; no `<style>` blocks or external CSS
+- Add tests in `tests/test_emails.py` for every new template
+- Preview multipart emails in Mailpit (`make docker-dev-up`, http://localhost:8025)
