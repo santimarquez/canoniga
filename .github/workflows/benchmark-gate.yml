@@ -9,6 +9,8 @@ on:
 jobs:
   benchmark-gate-smoke:
     runs-on: ubuntu-latest
+    env:
+      PYTHON: python
 
     steps:
       - name: Checkout

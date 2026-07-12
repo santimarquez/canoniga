@@ -2,7 +2,7 @@
 ifeq ($(OS),Windows_NT)
 PYTHON ?= py -3
 else
-PYTHON ?= $(shell (test -x .venv/bin/python && echo .venv/bin/python) || (command -v python3.12 || command -v python3.11 || command -v python3.10 || command -v python3) 2>/dev/null)
+PYTHON ?= $(shell (test -x .venv/bin/python && echo .venv/bin/python) || (command -v python3.11 || command -v python3.12 || command -v python3.10 || command -v python3 || command -v python) 2>/dev/null)
 endif
 PIP ?= $(PYTHON) -m pip
 PYTEST ?= $(PYTHON) -m pytest

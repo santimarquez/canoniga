@@ -23,6 +23,8 @@ on:
 jobs:
   benchmark-gate-strict:
     runs-on: ubuntu-latest
+    env:
+      PYTHON: python
 
     steps:
       - name: Checkout
