@@ -733,5 +733,187 @@
       "outcome": "disease progression",
       "effect_direction": "supports"
     }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "pubmed",
+      "source_id": "HR_PUB_001",
+      "title": "Fus mutations accelerate motor neuron degeneration",
+      "abstract": "Fus mutations were associated with faster motor neuron degeneration in ALS patients.",
+      "mesh_terms": ["RNA-Binding Protein FUS"],
+      "year": 2024,
+      "journal": "Brain"
+    },
+    "expected": {
+      "entity": "FUS",
+      "relation": "genetic_association",
+      "outcome": "disease progression",
+      "effect_direction": "supports"
+    }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "ctgov",
+      "source_id": "HR_CT_001",
+      "title": "Terminated ALS trial for TDP-43 modulator",
+      "trial_status": "Terminated",
+      "phase": "PHASE2",
+      "enrollment": 72,
+      "primary_endpoint": "Change in ALSFRS-R",
+      "primary_endpoint_result": "No significant difference versus placebo",
+      "termination_reason": "Lack of efficacy",
+      "year": 2023,
+      "journal": "clinicaltrials.gov"
+    },
+    "expected": {
+      "entity": "als mechanism (unspecified)",
+      "relation": "fails_to_modulate",
+      "outcome": "ALS functional rating",
+      "effect_direction": "contradicts"
+    }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "pmc",
+      "source_id": "HR_PMC_001",
+      "title": "Glutamate excitotoxicity in ALS spinal cord",
+      "abstract": "Glutamate excitotoxicity correlated with motor neuron loss in ALS spinal cord samples.",
+      "body_text": "Elevated glutamate markers accompanied motor neuron loss.",
+      "year": 2021,
+      "journal": "Neuron"
+    },
+    "expected": {
+      "entity": "als mechanism (unspecified)",
+      "relation": "associated_with",
+      "outcome": "disease progression",
+      "effect_direction": "neutral"
+    }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "chembl",
+      "source_id": "HR_CH_001",
+      "title": "Riluzole inhibits glutamate release in motor neurons",
+      "description": "Riluzole reduced glutamate release and slowed disease progression in ALS models.",
+      "year": 2020,
+      "journal": "ChEMBL"
+    },
+    "expected": {
+      "entity": "Riluzole inhibits glutamate release in motor neurons",
+      "relation": "modulates",
+      "outcome": "disease progression",
+      "effect_direction": "neutral"
+    }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "geo",
+      "source_id": "HR_GEO_001",
+      "title": "Transcriptomic profiling of ALS motor cortex",
+      "summary": "Differential expression of neuroinflammation genes in ALS motor cortex biopsies.",
+      "year": 2022,
+      "journal": "GEO"
+    },
+    "expected": {
+      "entity": "als mechanism (unspecified)",
+      "relation": "associated_with",
+      "outcome": "disease progression",
+      "effect_direction": "neutral"
+    }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "kegg",
+      "source_id": "HR_KEGG_001",
+      "title": "KEGG ALS pathway map05014",
+      "pathway_name": "Amyotrophic lateral sclerosis",
+      "description": "SOD1 and TDP-43 nodes linked to motor neuron apoptosis in ALS pathway.",
+      "year": 2024,
+      "journal": "KEGG"
+    },
+    "expected": {
+      "entity": "amyotrophic lateral sclerosis",
+      "relation": "associated_with",
+      "outcome": "disease progression",
+      "effect_direction": "neutral"
+    }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "ncbi_gene",
+      "source_id": "HR_GENE_001",
+      "title": "TBK1 gene associated with ALS risk",
+      "summary": "TBK1 variants were linked to familial ALS and autophagy defects.",
+      "year": 2023,
+      "journal": "NCBI Gene"
+    },
+    "expected": {
+      "entity": "TBK1",
+      "relation": "genetic_association",
+      "outcome": "disease progression",
+      "effect_direction": "supports"
+    }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "uniprot",
+      "source_id": "HR_UP_001",
+      "title": "Superoxide dismutase 1 (SOD1)",
+      "protein_name": "Superoxide dismutase 1",
+      "function": "Destroys superoxide radicals; SOD1 mutations cause familial ALS.",
+      "year": 2022,
+      "journal": "UniProt"
+    },
+    "expected": {
+      "entity": "SOD1",
+      "relation": "associated_with",
+      "outcome": "disease progression",
+      "effect_direction": "neutral"
+    }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "reactome",
+      "source_id": "HR_RE_001",
+      "title": "Neuroinflammation signaling in ALS",
+      "pathway_name": "Neuroinflammation",
+      "description": "Microglial activation propagates neuroinflammation in ALS.",
+      "year": 2021,
+      "journal": "Reactome"
+    },
+    "expected": {
+      "entity": "amyotrophic lateral sclerosis",
+      "relation": "associated_with",
+      "outcome": "disease progression",
+      "effect_direction": "neutral"
+    }
+  },
+  {
+    "hand_reviewed": true,
+    "doc": {
+      "source": "open_targets",
+      "source_id": "HR_OT_001",
+      "title": "C9orf72 as ALS therapeutic target",
+      "target_name": "C9orf72",
+      "disease": "amyotrophic lateral sclerosis",
+      "association_score": 0.82,
+      "year": 2024,
+      "journal": "Open Targets"
+    },
+    "expected": {
+      "entity": "C9orf72",
+      "relation": "genetic_association",
+      "outcome": "disease progression",
+      "effect_direction": "neutral"
+    }
   }
 ]

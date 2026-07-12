@@ -25,7 +25,7 @@ SYNC_ALL_INTERVAL_SECONDS ?= 0
 SYNC_STATS_LIMIT ?= 20
 HYPOTHESIS_LIMIT ?= 10
 
-.PHONY: help setup test lint init-db ingest-sample chat web-up web-down web-logs docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries test-extraction-fidelity train-eval-promote nightly-ops
+.PHONY: help setup test lint init-db ingest-sample chat web-up web-down web-logs docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries test-extraction-fidelity train-eval-promote nightly-ops docker-nightly-ops
 
 DOCKER_DEV_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 DOCKER_GPU_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml
@@ -68,6 +68,7 @@ help:
 	@echo "  test-regression-queries Run canonical regression query assertions"
 	@echo "  test-extraction-fidelity Run extraction fidelity pytest + CLI gate"
 	@echo "  nightly-ops           Chain sync-all-sources, graph-build, and worker tick"
+	@echo "  docker-nightly-ops    Run nightly ops inside Docker (medium sync plan + worker tick)"
 
 setup:
 	$(PIP) install --upgrade pip
@@ -206,6 +207,18 @@ nightly-ops:
 		echo "Skipping worker tick: set ALS_AUTOMATION_WORKER_TOKEN to enable automation worker POST."; \
 	else \
 		curl -fsS -X POST "http://localhost:8000/api/investigation/runs/worker/tick" \
+			-H "Authorization: Bearer $$ALS_AUTOMATION_WORKER_TOKEN" \
+			-H "Content-Type: application/json" \
+			-d '{}'; \
+	fi
+
+docker-nightly-ops:
+	$(MAKE) docker-sync-all-sources SYNC_ALL_PLAN=config/sync_plan.medium_public_sources.json
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel graph-build --db $(WEB_DB_PATH)
+	@if [ -z "$$ALS_AUTOMATION_WORKER_TOKEN" ]; then \
+		echo "Skipping worker tick: set ALS_AUTOMATION_WORKER_TOKEN to enable automation worker POST."; \
+	else \
+		curl -fsS -X POST "http://localhost:$(WEB_PORT)/api/investigation/runs/worker/tick" \
 			-H "Authorization: Bearer $$ALS_AUTOMATION_WORKER_TOKEN" \
 			-H "Content-Type: application/json" \
 			-d '{}'; \

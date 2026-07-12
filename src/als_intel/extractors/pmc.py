@@ -21,7 +21,14 @@ class PMCExtractor(DataSourceExtractor):
         from als_intel import sync as sync_module
 
         effective_query = str(query)
-        docs = sync_module.fetch_pmc(query=effective_query, max_results=max_results, from_file=from_file)
+        config = extractor_config or {}
+        fetch_fulltext = bool(config.get("fetch_fulltext", False))
+        docs = sync_module.fetch_pmc(
+            query=effective_query,
+            max_results=max_results,
+            from_file=from_file,
+            fetch_fulltext=fetch_fulltext,
+        )
         return docs, effective_query
 
     def normalize_doc(self, doc: dict[str, Any]):

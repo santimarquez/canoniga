@@ -251,6 +251,21 @@ def test_diagnostics_template_references_verification_flags() -> None:
     assert "verification_flags" in PAGE_TEMPLATE.template
 
 
+def test_failure_atlas_template_references_api_and_endpoint_result() -> None:
+    assert "failureAtlasList" in PAGE_TEMPLATE.template
+    assert "/api/failure-atlas" in PAGE_TEMPLATE.template
+    assert "primary_endpoint_result" in PAGE_TEMPLATE.template
+    assert "fetchFailureAtlas" in PAGE_TEMPLATE.template
+
+
+def test_governance_doc_route_helper_serves_mission_md() -> None:
+    from als_intel.webui import render_governance_doc_page
+
+    body = render_governance_doc_page("MISSION.md")
+    assert body is not None
+    assert b"MISSION" in body or b"mission" in body.lower()
+
+
 def test_login_template_includes_magic_link_confirmation_panel() -> None:
     html = LOGIN_TEMPLATE.substitute(
         auth_enabled="true",

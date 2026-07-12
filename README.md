@@ -4,18 +4,15 @@ This repository contains the first implementation phase of a local, open-source 
 
 ## CI visibility
 
+![Benchmark Gate Smoke](https://github.com/santimarquez/canoniga/actions/workflows/benchmark-gate.yml/badge.svg?branch=master)
+![Benchmark Gate Strict](https://github.com/santimarquez/canoniga/actions/workflows/benchmark-gate-strict.yml/badge.svg?branch=master)
+
 Active workflow definitions:
 
 - [Benchmark Gate Smoke](.github/workflows/benchmark-gate.yml)
 - [Benchmark Gate Strict](.github/workflows/benchmark-gate-strict.yml)
 
-This local clone currently has no configured git remote, so repository-specific GitHub badge URLs cannot be resolved automatically.
-Once the GitHub owner/repo is known, you can enable badges by replacing `<OWNER>/<REPO>` in these snippets:
-
-```md
-![Benchmark Gate Smoke](https://github.com/<OWNER>/<REPO>/actions/workflows/benchmark-gate.yml/badge.svg)
-![Benchmark Gate Strict](https://github.com/<OWNER>/<REPO>/actions/workflows/benchmark-gate-strict.yml/badge.svg)
-```
+Latest `master` CI status: [Actions runs](https://github.com/santimarquez/canoniga/actions)
 
 ## Phase 1 scope
 
@@ -313,6 +310,18 @@ Cookie policy controls:
 - `ALS_COOKIE_PATH` (default: `/`): cookie path.
 - `ALS_COOKIE_DOMAIN` (default: empty): optional cookie domain.
 
+## Production auth checklist
+
+Before exposing a self-hosted instance on the public internet:
+
+1. Set `ALS_MAGIC_LINK_DEV_MODE=0` so magic links are emailed, not returned in API responses.
+2. Configure real SMTP (`ALS_SMTP_HOST`, `ALS_SMTP_PORT`, `ALS_SMTP_USER`, `ALS_SMTP_PASSWORD`, `ALS_SMTP_FROM`). Use Mailpit (`localhost:8025`) only for local development.
+3. Set `ALS_COOKIE_SECURE=1` behind an HTTPS reverse proxy (nginx, Caddy, Traefik).
+4. Keep default rate limits (`ALS_MAGIC_LINK_RATE_LIMIT_*`) unless you have alternate abuse protection.
+5. Set a strong `ALS_CSRF_SECRET` and restrict database file permissions.
+6. Create `ALS_AUTOMATION_WORKER_TOKEN` for scheduled `make nightly-ops` / `make docker-nightly-ops` worker ticks.
+7. Serve governance docs locally at `/docs/MISSION.md` (no GitHub dependency required).
+
 Production baseline recommendation:
 
 - Set `ALS_MAGIC_LINK_DEV_MODE=0`.
@@ -336,7 +345,8 @@ make benchmark-gate
 make benchmark-gate-strict
 make validate-benchmarks
 make merge-benchmarks
-make test-regression-queries
+make nightly-ops
+make docker-nightly-ops
 ```
 
 `make chat` opens the CLI chat loop. `make web-up` starts the Docker web UI at `http://localhost:8000`.

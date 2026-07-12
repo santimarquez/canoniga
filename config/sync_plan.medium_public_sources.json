@@ -1,0 +1,87 @@
+[
+  {
+    "source": "pubmed",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA OR \"Lou Gehrig\")",
+    "max_results": 50,
+    "extractor_config": {
+      "disable_incremental": true
+    },
+    "stage_config": {
+      "enabled": true,
+      "metadata_limit": 1000
+    }
+  },
+  {
+    "source": "ctgov",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA OR \"Lou Gehrig\")",
+    "max_results": 50
+  },
+  {
+    "source": "pmc",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50,
+    "extractor_config": {
+      "fetch_fulltext": true
+    }
+  },
+  {
+    "source": "ncbi_gene",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "uniprot",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "go",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "reactome",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "geo",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "arrayexpress",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "kegg",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "pride",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "metabolomics_workbench",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "chembl",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "open_targets",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  },
+  {
+    "source": "fda_labels",
+    "query": "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)",
+    "max_results": 50
+  }
+]

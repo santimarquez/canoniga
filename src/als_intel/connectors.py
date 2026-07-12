@@ -361,7 +361,13 @@ def fetch_ctgov(query: str, max_results: int = 20, from_file: str | None = None)
     return docs
 
 
-def fetch_pmc(query: str, max_results: int = 20, from_file: str | None = None) -> list[dict[str, Any]]:
+def fetch_pmc(
+    query: str,
+    max_results: int = 20,
+    from_file: str | None = None,
+    *,
+    fetch_fulltext: bool = False,
+) -> list[dict[str, Any]]:
     """Fetch PubMed Central records as normalized documents.
 
     Uses Europe PMC search API for open-access/PMC indexed records.
@@ -412,7 +418,8 @@ def fetch_pmc(query: str, max_results: int = 20, from_file: str | None = None) -
         pub_year = int(str(row.get("pubYear", "0") or "0")[:4] or 0)
         abstract = str(row.get("abstractText", "") or row.get("abstract", "") or "").strip()
         body_text = str(row.get("body_text", "") or "").strip()
-        if not body_text and pmcid and target is not None and target <= 25:
+        should_fetch_body = fetch_fulltext or (target is not None and target <= 25)
+        if not body_text and pmcid and should_fetch_body:
             body_text = _fetch_pmc_body_snippet(pmcid)
         docs.append(
             {

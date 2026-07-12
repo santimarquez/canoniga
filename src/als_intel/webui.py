@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from collections import deque
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -1174,6 +1175,13 @@ PAGE_TEMPLATE = Template(
           </div>
           <div id="diagnosticsList" class="tiny muted">No diagnostics yet.</div>
         </div>
+        <div class="compare" style="margin-top:12px">
+          <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px">
+            <div id="failureAtlasTitle" class="label" style="margin:0">Failure Atlas</div>
+            <button id="refreshFailureAtlas" class="btn tiny">Refresh</button>
+          </div>
+          <div id="failureAtlasList" class="tiny muted">No failure atlas entries yet.</div>
+        </div>
       </aside>
     </main>
     <div id="drawerBackdrop" class="drawer-backdrop"></div>
@@ -1531,6 +1539,14 @@ PAGE_TEMPLATE = Template(
           response_mode_sync_fallback: 'sync fallback',
           guardrail_flags: 'Guardrails',
           verification_flags: 'Verification',
+          failure_atlas_title: 'Failure Atlas',
+          failure_atlas_empty: 'No failure atlas entries yet.',
+          failure_atlas_total: 'Failed or negative records',
+          failure_atlas_structured: 'Structured trial failures',
+          trial_status: 'Trial status',
+          termination_reason: 'Termination reason',
+          primary_endpoint_result: 'Primary endpoint result',
+          root_cause: 'Root cause',
           done_rows_used: 'Done. {count} rows used.',
           no_report_to_save: 'No report to save yet.',
           session_saved: 'Session saved to database.',
@@ -1716,6 +1732,14 @@ PAGE_TEMPLATE = Template(
           response_mode_sync_fallback: 'sync fallback',
           guardrail_flags: 'Guardrails',
           verification_flags: 'Verification',
+          failure_atlas_title: 'Atlas de fallos',
+          failure_atlas_empty: 'Sin entradas en el atlas de fallos.',
+          failure_atlas_total: 'Registros fallidos o negativos',
+          failure_atlas_structured: 'Fallos estructurados de ensayo',
+          trial_status: 'Estado del ensayo',
+          termination_reason: 'Motivo de terminacion',
+          primary_endpoint_result: 'Resultado del endpoint primario',
+          root_cause: 'Causa raiz',
           done_rows_used: 'Listo. {count} filas utilizadas.',
           no_report_to_save: 'Aun no hay informe para guardar.',
           session_saved: 'Sesion guardada en la base de datos.',
@@ -1920,6 +1944,8 @@ PAGE_TEMPLATE = Template(
           runCompare: t('run_compare'),
           diagnosticsTitle: t('diagnostics_title'),
           refreshDiagnostics: t('refresh'),
+          failureAtlasTitle: t('failure_atlas_title'),
+          refreshFailureAtlas: t('refresh'),
           settingsTitle: t('settings'),
           closeSettings: t('close'),
           settingsLanguageLabel: t('language'),
@@ -2173,6 +2199,61 @@ PAGE_TEMPLATE = Template(
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.error || 'diagnostics failed');
           renderDiagnosticsRows(Array.isArray(data.traces) ? data.traces : []);
+        } catch (error) {
+          if (root) {
+            root.textContent = String(error);
+          }
+        }
+      }
+
+      function renderFailureAtlasRows(atlas) {
+        const root = byId('failureAtlasList');
+        if (!root) {
+          return;
+        }
+        const entries = atlas && Array.isArray(atlas.entries) ? atlas.entries : [];
+        if (!entries.length) {
+          root.textContent = t('failure_atlas_empty');
+          return;
+        }
+
+        const summary = (
+          '<div class="tiny muted" style="margin-bottom:8px">' +
+            escapeHtml(t('failure_atlas_total')) + ': ' + Number(atlas.total_failed_or_negative_records || 0) +
+            ' | ' + escapeHtml(t('failure_atlas_structured')) + ': ' + Number(atlas.structured_trial_failures || 0) +
+          '</div>'
+        );
+
+        const chunks = entries.slice(0, 12).map((entry) => {
+          const endpointResult = String(entry.primary_endpoint_result || '-');
+          const trialStatus = String(entry.trial_status || '-');
+          const terminationReason = String(entry.termination_reason || '-');
+          const rootCause = String(entry.root_cause || '-');
+          return (
+            '<div class="tiny" style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px;background:#fff">' +
+              '<div style="display:flex;justify-content:space-between;gap:8px"><span class="mono">' + escapeHtml(String(entry.claim_id || 'claim')) + '</span><span>' + escapeHtml(String(entry.entity || '')) + '</span></div>' +
+              '<div class="muted" style="margin-top:4px">' + escapeHtml(String(entry.outcome || '')) + '</div>' +
+              '<div style="margin-top:4px">' + t('trial_status') + ': ' + escapeHtml(trialStatus) + '</div>' +
+              '<div style="margin-top:2px">' + t('termination_reason') + ': ' + escapeHtml(terminationReason) + '</div>' +
+              '<div style="margin-top:2px">' + t('primary_endpoint_result') + ': ' + escapeHtml(endpointResult) + '</div>' +
+              '<div style="margin-top:2px">' + t('root_cause') + ': ' + escapeHtml(rootCause) + '</div>' +
+            '</div>'
+          );
+        });
+
+        root.innerHTML = summary + chunks.join('');
+      }
+
+      async function fetchFailureAtlas() {
+        const root = byId('failureAtlasList');
+        if (root) {
+          root.textContent = t('loading_copy');
+        }
+        try {
+          const resp = await fetch('/api/failure-atlas');
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || 'failure atlas failed');
+          renderFailureAtlasRows(data);
         } catch (error) {
           if (root) {
             root.textContent = String(error);
@@ -4260,6 +4341,7 @@ PAGE_TEMPLATE = Template(
       });
       bindClick('runCompare', runCompare);
       bindClick('refreshDiagnostics', fetchRecentDiagnostics);
+      bindClick('refreshFailureAtlas', fetchFailureAtlas);
       bindClick('logoutBtn', logout);
       bindClick('saveSession', saveSession);
       bindClick('exportSummary', exportSummary);
@@ -4297,6 +4379,7 @@ PAGE_TEMPLATE = Template(
         fetchStatus();
         if (!state.authEnabled || state.isAuthenticated) {
           fetchRecentDiagnostics();
+          fetchFailureAtlas();
           renderEvidenceRows([]);
           await loadLatestSessionId();
           await loadSession(state.activeSessionId);
@@ -5982,9 +6065,9 @@ def render_privacy_policy_page() -> bytes:
 <h2 class="text-lg font-semibold text-slate-900 mt-6 mb-2">7. Governance and Oversight</h2>
 <p>Review the project mission and oversight model in the repository docs:</p>
 <ul>
-  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/MISSION.md" class="text-blue-900 hover:underline">Mission</a></li>
-  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/ETHICS_AND_OVERSIGHT.md" class="text-blue-900 hover:underline">Ethics and Oversight</a></li>
-  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/HUMAN_OVERSIGHT.md" class="text-blue-900 hover:underline">Human Oversight</a></li>
+  <li><a href="/docs/MISSION.md" class="text-blue-900 hover:underline">Mission</a></li>
+  <li><a href="/docs/ETHICS_AND_OVERSIGHT.md" class="text-blue-900 hover:underline">Ethics and Oversight</a></li>
+  <li><a href="/docs/HUMAN_OVERSIGHT.md" class="text-blue-900 hover:underline">Human Oversight</a></li>
 </ul>
 """
   html = LEGAL_TEMPLATE.substitute(
@@ -6012,9 +6095,9 @@ def render_terms_page() -> bytes:
 <h2 class="text-lg font-semibold text-slate-900 mt-6 mb-2">6. Governance and Oversight</h2>
 <p>Ethical use expectations and human oversight requirements are documented in:</p>
 <ul>
-  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/MISSION.md" class="text-blue-900 hover:underline">Mission</a></li>
-  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/ETHICS_AND_OVERSIGHT.md" class="text-blue-900 hover:underline">Ethics and Oversight</a></li>
-  <li><a href="https://github.com/mtvl-ai/canoniga/blob/master/docs/HUMAN_OVERSIGHT.md" class="text-blue-900 hover:underline">Human Oversight</a></li>
+  <li><a href="/docs/MISSION.md" class="text-blue-900 hover:underline">Mission</a></li>
+  <li><a href="/docs/ETHICS_AND_OVERSIGHT.md" class="text-blue-900 hover:underline">Ethics and Oversight</a></li>
+  <li><a href="/docs/HUMAN_OVERSIGHT.md" class="text-blue-900 hover:underline">Human Oversight</a></li>
 </ul>
 """
   html = LEGAL_TEMPLATE.substitute(
@@ -6024,6 +6107,36 @@ def render_terms_page() -> bytes:
     favicon_tag=favicon_link_tag(),
   )
   return html.encode("utf-8")
+
+
+def _repo_docs_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "docs"
+
+
+def render_governance_doc_page(doc_name: str) -> bytes | None:
+    safe_name = Path(doc_name).name
+    if not safe_name.endswith(".md"):
+        return None
+    doc_path = _repo_docs_dir() / safe_name
+    if not doc_path.is_file():
+        return None
+    markdown = doc_path.read_text(encoding="utf-8")
+    escaped = (
+        markdown.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+    body = (
+        f'<pre class="whitespace-pre-wrap text-sm text-slate-800" style="white-space:pre-wrap;font-family:ui-monospace,monospace">'
+        f"{escaped}</pre>"
+    )
+    html = LEGAL_TEMPLATE.substitute(
+        page_title=safe_name.replace(".md", "").replace("_", " "),
+        page_body=body,
+        current_year=str(datetime.now(timezone.utc).year),
+        favicon_tag=favicon_link_tag(),
+    )
+    return html.encode("utf-8")
 
 
 def _write_brand_logo(handler: BaseHTTPRequestHandler) -> None:
@@ -6164,6 +6277,37 @@ class ChatHandler(BaseHTTPRequestHandler):
         store.init_db()
         return store
 
+    def _handle_worker_tick(self, *, provided_token: str, limit: int) -> None:
+        expected_token = str(os.getenv("ALS_AUTOMATION_WORKER_TOKEN", "")).strip()
+        if not expected_token or provided_token != expected_token:
+            _json_response(self, HTTPStatus.FORBIDDEN, {"error": "invalid worker token"})
+            return
+        backoff_base_seconds = _parse_positive_int(
+            os.getenv("ALS_RUN_RETRY_BACKOFF_SECONDS", "30"),
+            30,
+            max_value=3600,
+        )
+        now_iso = datetime.now(timezone.utc).isoformat()
+        settings = self._settings()
+        store = self._store(str(settings["db_path"]))
+        due_runs = store.claim_due_queued_runs(now_iso=now_iso, limit=limit)
+        executed_rows = _execute_due_queued_runs(
+            store=store,
+            due_runs=due_runs,
+            backoff_base_seconds=backoff_base_seconds,
+        )
+        _json_response(
+            self,
+            HTTPStatus.OK,
+            {
+                "rows": executed_rows,
+                "executed": len(executed_rows),
+                "claimed": len(due_runs),
+                "limit": limit,
+                "now": now_iso,
+            },
+        )
+
     def _is_browser_page_request(self, path: str) -> bool:
         if path == "/healthz":
             return False
@@ -6265,6 +6409,22 @@ class ChatHandler(BaseHTTPRequestHandler):
           self.end_headers()
           self.wfile.write(body)
           return
+
+        if path.startswith("/docs/"):
+            doc_name = unquote(path[len("/docs/"):]).lstrip("/")
+            body = render_governance_doc_page(doc_name)
+            if body is None:
+                self.send_response(HTTPStatus.NOT_FOUND)
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(b"Governance document not found")
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/healthz":
             _json_response(self, HTTPStatus.OK, {"status": "ok"})
@@ -6598,37 +6758,12 @@ class ChatHandler(BaseHTTPRequestHandler):
 
         if path == "/api/investigation/runs/worker/tick":
           try:
-            settings = self._settings()
             provided_token = str((query_params.get("token") or [""])[0]).strip()
-            expected_token = str(os.getenv("ALS_AUTOMATION_WORKER_TOKEN", "")).strip()
-            if not expected_token or provided_token != expected_token:
-              _json_response(self, HTTPStatus.FORBIDDEN, {"error": "invalid worker token"})
-              return
+            auth_header = str(self.headers.get("Authorization", "")).strip()
+            if auth_header.lower().startswith("bearer "):
+              provided_token = auth_header[7:].strip() or provided_token
             limit = _parse_positive_int((query_params.get("limit") or ["20"])[0], 20, max_value=200)
-            backoff_base_seconds = _parse_positive_int(
-              os.getenv("ALS_RUN_RETRY_BACKOFF_SECONDS", "30"),
-              30,
-              max_value=3600,
-            )
-            now_iso = datetime.now(timezone.utc).isoformat()
-            store = self._store(str(settings["db_path"]))
-            due_runs = store.claim_due_queued_runs(now_iso=now_iso, limit=limit)
-            executed_rows = _execute_due_queued_runs(
-              store=store,
-              due_runs=due_runs,
-              backoff_base_seconds=backoff_base_seconds,
-            )
-            _json_response(
-              self,
-              HTTPStatus.OK,
-              {
-                "rows": executed_rows,
-                "executed": len(executed_rows),
-                "claimed": len(due_runs),
-                "limit": limit,
-                "now": now_iso,
-              },
-            )
+            self._handle_worker_tick(provided_token=provided_token, limit=limit)
           except Exception as exc:
             _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
           return
@@ -6817,6 +6952,7 @@ class ChatHandler(BaseHTTPRequestHandler):
             "/api/investigation/templates/run",
             "/api/automation/experiments/run",
             "/api/export/automated",
+            "/api/investigation/runs/worker/tick",
         }:
             _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
@@ -6825,6 +6961,17 @@ class ChatHandler(BaseHTTPRequestHandler):
             payload = _read_json_body(self)
             settings = self._settings()
             auth_service = self._auth_service()
+
+            if path == "/api/investigation/runs/worker/tick":
+                auth_header = str(self.headers.get("Authorization", "")).strip()
+                provided_token = ""
+                if auth_header.lower().startswith("bearer "):
+                    provided_token = auth_header[7:].strip()
+                if not provided_token:
+                    provided_token = str(payload.get("token", "")).strip()
+                limit = _parse_positive_int(payload.get("limit", 20), 20, max_value=200)
+                self._handle_worker_tick(provided_token=provided_token, limit=limit)
+                return
 
             if path == "/api/auth/request-link":
                 email = str(payload.get("email", "")).strip()
