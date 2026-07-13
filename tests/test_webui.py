@@ -258,6 +258,27 @@ def test_failure_atlas_template_references_api_and_endpoint_result() -> None:
     assert "fetchFailureAtlas" in PAGE_TEMPLATE.template
 
 
+def test_investigator_template_has_four_workspace_tabs_and_profile_menu() -> None:
+    template = PAGE_TEMPLATE.template
+    assert 'id="navAssistant"' in template
+    assert 'id="navSessions"' in template
+    assert 'id="navHypothesis"' in template
+    assert 'id="navReview"' in template
+    assert 'id="hypothesisView"' in template
+    assert 'id="reviewView"' in template
+    assert 'workspace-stage' in template
+    assert 'workspace-pane' in template
+    assert 'is-active' in template
+    assert 'id="openProfileMenu"' in template
+    assert 'id="profileDrawer"' in template
+    assert 'id="openSettings"' not in template
+    assert 'id="logoutBtn"' not in template
+    assert 'id="hypothesisQueueModal"' not in template
+    assert 'id="reviewQueueModal"' not in template
+    assert "view-assistant" in template
+    assert "function switchView" in template
+
+
 def test_governance_doc_route_helper_serves_mission_md() -> None:
     from als_intel.webui import render_governance_doc_page
 

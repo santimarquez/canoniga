@@ -415,6 +415,15 @@ INVESTIGATION_RUN_MIGRATION_COLUMNS = {
     "export_status": "TEXT NOT NULL DEFAULT 'not_exported'",
 }
 
+USER_PROFILE_MIGRATION_COLUMNS = {
+    "display_name": "TEXT NOT NULL DEFAULT ''",
+    "title": "TEXT NOT NULL DEFAULT ''",
+    "institution": "TEXT NOT NULL DEFAULT ''",
+    "avatar_data": "BLOB",
+    "avatar_mime_type": "TEXT NOT NULL DEFAULT ''",
+    "profile_updated_at": "TEXT",
+}
+
 
 class EvidenceStore:
     def __init__(self, db_path: str | Path) -> None:
@@ -506,6 +515,7 @@ class EvidenceStore:
             self._migrate_evidence_table(conn)
             self._migrate_investigator_sessions_table(conn)
             self._migrate_investigation_runs_table(conn)
+            self._migrate_users_table(conn)
             conn.commit()
 
     def _migrate_evidence_table(self, conn: sqlite3.Connection) -> None:
@@ -551,6 +561,111 @@ class EvidenceStore:
             ON investigation_runs (user_id, idempotency_key)
             """
         )
+
+    def _migrate_users_table(self, conn: sqlite3.Connection) -> None:
+        existing_cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(users)").fetchall()
+        }
+        for col_name, col_def in USER_PROFILE_MIGRATION_COLUMNS.items():
+            if col_name not in existing_cols:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+
+    def _row_to_user_profile(
+        self,
+        row: tuple[object, ...],
+        *,
+        include_avatar_bytes: bool,
+    ) -> dict[str, object]:
+        avatar_bytes = row[5] if row[5] is not None else b""
+        if not isinstance(avatar_bytes, (bytes, bytearray)):
+            avatar_bytes = bytes(avatar_bytes)
+        profile = {
+            "user_id": str(row[0] or ""),
+            "email": str(row[1] or ""),
+            "display_name": str(row[2] or ""),
+            "title": str(row[3] or ""),
+            "institution": str(row[4] or ""),
+            "avatar_mime_type": str(row[6] or ""),
+            "profile_updated_at": str(row[7] or "") if row[7] is not None else "",
+            "has_avatar": bool(avatar_bytes),
+        }
+        if include_avatar_bytes:
+            profile["avatar_data"] = bytes(avatar_bytes)
+        return profile
+
+    def get_user_profile(self, *, user_id: str, include_avatar_bytes: bool = False) -> dict[str, object] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT user_id, email, display_name, title, institution,
+                       avatar_data, avatar_mime_type, profile_updated_at
+                FROM users
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_user_profile(row, include_avatar_bytes=include_avatar_bytes)
+
+    def upsert_user_profile(
+        self,
+        *,
+        user_id: str,
+        display_name: str,
+        title: str,
+        institution: str,
+        avatar_bytes: bytes | None = None,
+        avatar_mime_type: str | None = None,
+        clear_avatar: bool = False,
+    ) -> dict[str, object]:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT avatar_data, avatar_mime_type
+                FROM users
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("User not found")
+            next_avatar = row[0] if row[0] is not None else b""
+            next_mime = str(row[1] or "")
+            if clear_avatar:
+                next_avatar = b""
+                next_mime = ""
+            elif avatar_bytes is not None:
+                next_avatar = avatar_bytes
+                next_mime = str(avatar_mime_type or "")
+            conn.execute(
+                """
+                UPDATE users
+                SET display_name = ?,
+                    title = ?,
+                    institution = ?,
+                    avatar_data = ?,
+                    avatar_mime_type = ?,
+                    profile_updated_at = ?
+                WHERE user_id = ?
+                """,
+                (
+                    display_name,
+                    title,
+                    institution,
+                    next_avatar,
+                    next_mime,
+                    now_iso,
+                    user_id,
+                ),
+            )
+            conn.commit()
+        profile = self.get_user_profile(user_id=user_id, include_avatar_bytes=False)
+        if profile is None:
+            raise ValueError("Failed to load updated profile")
+        return profile
 
     def upsert_evidence(
         self,

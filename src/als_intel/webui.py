@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from pathlib import Path
 from collections import deque
 from datetime import datetime, timedelta, timezone
@@ -36,7 +37,10 @@ from als_intel.brand import (
 from als_intel.landing import APP_ROUTE, render_landing_page
 from als_intel.llm import LocalLLMError, build_grounded_prompt, generate_with_ollama, generate_with_ollama_stream
 from als_intel.markdown_render import extract_markdown_title, render_markdown_to_html
+from als_intel.profile import public_profile_summary
 from als_intel.store import EvidenceStore
+
+MAX_PROFILE_AVATAR_BYTES = 256 * 1024
 
 
 DEFAULT_DB_PATH = os.getenv("ALS_DB_PATH", "data/als_intel.sqlite")
@@ -144,6 +148,7 @@ PAGE_TEMPLATE = Template(
         text-transform: uppercase;
         font-weight: 600;
         cursor: pointer;
+        transition: color 0.2s ease, border-color 0.2s ease;
       }
       .nav button.active {
         color: var(--primary-strong);
@@ -194,20 +199,199 @@ PAGE_TEMPLATE = Template(
         padding: 16px 32px;
         height: calc(100vh - 64px);
         display: grid;
-        grid-template-columns: 250px minmax(0, 1fr) 350px;
         gap: 16px;
+        transition: grid-template-columns 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .layout.view-assistant {
+        grid-template-columns: 250px minmax(0, 1fr) 350px;
+      }
+      .layout.view-sessions,
+      .layout.view-hypothesis,
+      .layout.view-review {
+        grid-template-columns: 1fr;
+      }
+      .layout.filters-collapsed.view-assistant {
+        grid-template-columns: 64px minmax(0, 1fr) 350px;
+      }
+      @media (max-width: 1180px) {
+        .layout.view-assistant,
+        .layout.view-sessions,
+        .layout.view-hypothesis,
+        .layout.view-review {
+          grid-template-columns: 1fr;
+          height: calc(100vh - 64px);
+          padding: 16px;
+        }
       }
       .layout > .panel {
         min-height: 0;
       }
-      .layout.filters-collapsed {
-        grid-template-columns: 64px minmax(0, 1fr) 350px;
+      .workspace-stage {
+        display: grid;
+        min-height: 0;
+        height: 100%;
+        grid-template-rows: minmax(0, 1fr);
+        overflow: hidden;
       }
-      @media (max-width: 1180px) {
-        .layout {
-          grid-template-columns: 1fr;
-          height: calc(100vh - 64px);
-          padding: 16px;
+      .workspace-pane {
+        grid-area: 1 / 1;
+        min-height: 0;
+        height: 100%;
+        overflow: auto;
+        opacity: 0;
+        transform: translateY(10px);
+        pointer-events: none;
+        visibility: hidden;
+        transition:
+          opacity 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+          transform 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+          visibility 0s linear 0.24s;
+      }
+      .workspace-pane.is-active {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+        visibility: visible;
+        z-index: 1;
+        transition:
+          opacity 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+          transform 0.24s cubic-bezier(0.4, 0, 0.2, 1),
+          visibility 0s linear 0s;
+      }
+      .workspace-view {
+        min-height: 0;
+        height: 100%;
+        overflow: auto;
+      }
+      .workspace-view.card.main {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+      }
+      .profile-menu-wrap {
+        position: relative;
+      }
+      .avatar-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 999px;
+        border: 1px solid var(--border-strong);
+        background: linear-gradient(180deg, #d8e5fb 0%, #f4f7fb 100%);
+        color: var(--primary-strong);
+        font-size: 11px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        padding: 0;
+        cursor: pointer;
+      }
+      .avatar-btn img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 999px;
+      }
+      .profile-menu {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        width: min(280px, 78vw);
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        box-shadow: 0 16px 36px -14px rgba(15, 23, 42, 0.35);
+        z-index: 80;
+        overflow: hidden;
+      }
+      .profile-menu-head {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 14px;
+        border-bottom: 1px solid var(--border);
+        background: #f8fafc;
+      }
+      .profile-menu-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 999px;
+        border: 1px solid var(--border-strong);
+        background: linear-gradient(180deg, #d8e5fb 0%, #f4f7fb 100%);
+        color: var(--primary-strong);
+        font-size: 12px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+      .profile-menu-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .profile-menu-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #0f172a;
+        line-height: 1.2;
+      }
+      .profile-menu-email {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 2px;
+        word-break: break-word;
+      }
+      .profile-menu-item {
+        width: 100%;
+        text-align: left;
+        border: 0;
+        background: transparent;
+        padding: 11px 14px;
+        font: inherit;
+        font-size: 13px;
+        color: #0f172a;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+      }
+      .profile-menu-item:hover {
+        background: #f8fafc;
+      }
+      .profile-menu-item.danger {
+        color: #b91c1c;
+      }
+      .profile-avatar-preview {
+        width: 72px;
+        height: 72px;
+        border-radius: 999px;
+        border: 1px solid var(--border-strong);
+        background: linear-gradient(180deg, #d8e5fb 0%, #f4f7fb 100%);
+        color: var(--primary-strong);
+        font-size: 20px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      .profile-avatar-preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .layout,
+        .workspace-pane,
+        .nav button {
+          transition: none !important;
+        }
+        .workspace-pane {
+          transform: none !important;
         }
       }
       .card {
@@ -358,19 +542,6 @@ PAGE_TEMPLATE = Template(
       }
       .filter-panel.collapsed .filter-title {
         display: none;
-      }
-      .avatar-btn {
-        width: 32px;
-        height: 32px;
-        border-radius: 999px;
-        border: 1px solid var(--border-strong);
-        background: linear-gradient(180deg, #d8e5fb 0%, #f4f7fb 100%);
-        color: var(--primary-strong);
-        font-size: 11px;
-        font-weight: 700;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
       }
       input[type="text"],
       input[type="number"],
@@ -1225,17 +1396,32 @@ PAGE_TEMPLATE = Template(
         <div class="nav" style="margin-left:0">
           <button id="navAssistant" class="active">Assistant</button>
           <button id="navSessions">Saved Sessions</button>
+          <button id="navHypothesis">Hypothesis queue</button>
+          <button id="navReview">Review queue</button>
         </div>
         <button id="openDatabase" class="icon-btn" title="Database (disabled)" disabled><span class="material-symbols-outlined">database</span></button>
-        <button id="openSettings" class="icon-btn" title="Settings"><span class="material-symbols-outlined">settings</span></button>
-        <button id="openHypothesisQueue" class="icon-btn" title="Hypothesis queue"><span class="material-symbols-outlined">psychology</span></button>
-        <span id="authBadge" class="tiny muted">guest</span>
-        <button id="logoutBtn" class="btn tiny hidden">Logout</button>
-        <button id="openProfile" class="avatar-btn" title="Review queue">AI</button>
+        <div class="profile-menu-wrap">
+          <button id="openProfileMenu" class="avatar-btn" type="button" aria-haspopup="menu" aria-expanded="false" title="Profile menu">
+            <img id="profileAvatarImg" class="hidden" alt="" />
+            <span id="profileAvatarInitials">U</span>
+          </button>
+          <div id="profileMenu" class="profile-menu hidden" role="menu" aria-hidden="true">
+            <div class="profile-menu-head">
+              <div id="profileMenuAvatar" class="profile-menu-avatar"><span id="profileMenuInitials">U</span></div>
+              <div>
+                <div id="profileMenuName" class="profile-menu-name">Guest</div>
+                <div id="profileMenuEmail" class="profile-menu-email">guest@local</div>
+              </div>
+            </div>
+            <button id="openProfileEditor" class="profile-menu-item" type="button" role="menuitem"><span class="material-symbols-outlined" style="font-size:18px">person</span><span id="profileMenuEditLabel">Edit profile</span></button>
+            <button id="openSettingsFromMenu" class="profile-menu-item" type="button" role="menuitem"><span class="material-symbols-outlined" style="font-size:18px">settings</span><span id="profileMenuSettingsLabel">Settings</span></button>
+            <button id="logoutFromMenu" class="profile-menu-item danger hidden" type="button" role="menuitem"><span class="material-symbols-outlined" style="font-size:18px">logout</span><span id="profileMenuLogoutLabel">Logout</span></button>
+          </div>
+        </div>
       </div>
     </header>
-    <main class="layout">
-      <aside id="filterPanel" class="panel filter-panel">
+    <main class="layout view-assistant">
+      <aside id="filterPanel" class="panel filter-panel workspace-assistant-only">
         <div class="head" style="display:flex;justify-content:space-between;align-items:center;"><span id="filterTitle" class="filter-title">Evidence Filters</span><button id="toggleFilters" class="icon-btn" title="Collapse/expand filters"><span class="material-symbols-outlined" style="font-size:18px;color:var(--muted)">filter_list</span></button></div>
         <div class="filter-panel-body">
         <div class="p12 filters">
@@ -1278,8 +1464,8 @@ PAGE_TEMPLATE = Template(
       </aside>
 
       <div class="center-col">
-      <section class="card main">
-        <div id="assistantView">
+      <section class="card main workspace-stage">
+        <div id="assistantView" class="workspace-pane is-active">
         <div class="querybox">
           <div id="queryEvidenceLabel" class="label">Query evidence database</div>
           <div class="query-stack">
@@ -1303,7 +1489,7 @@ PAGE_TEMPLATE = Template(
           <button id="copyCitations" class="btn" disabled><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle;margin-right:6px">content_copy</span>Copy Citations</button>
         </div>
         </div>
-        <div id="sessionsView" class="p12 hidden">
+        <div id="sessionsView" class="workspace-pane workspace-view card main p12">
           <div class="row" style="margin-bottom:10px">
             <div id="savedSessionsLabel" class="label" style="margin:0">Saved sessions</div>
             <div class="spacer"></div>
@@ -1311,10 +1497,61 @@ PAGE_TEMPLATE = Template(
           </div>
           <div id="sessionsList" class="sessions-list"></div>
         </div>
+        <div id="hypothesisView" class="workspace-pane workspace-view card main p12">
+          <section class="settings-section hypo-controls">
+            <div class="row" style="justify-content:space-between;align-items:center">
+              <div id="hypothesisControlsLabel" class="label" style="margin:0">Promotion controls</div>
+              <button id="refreshHypothesisQueue" class="btn tiny">Refresh</button>
+            </div>
+            <label class="small"><input id="hypoRequireSignoff" type="checkbox" checked /> <span id="hypoRequireSignoffLabel">Require review signoff</span></label>
+            <label class="small"><input id="hypoEnforceCausalGate" type="checkbox" /> <span id="hypoEnforceCausalGateLabel">Enforce causal gate</span></label>
+            <div id="hypothesisMeta" class="tiny muted">-</div>
+          </section>
+          <section class="settings-section hypo-grid" style="margin-top:12px">
+            <div>
+              <div id="hypothesisPromotedLabel" class="label">Promoted hypotheses</div>
+              <div id="hypothesisQueueList" class="hypo-list"></div>
+            </div>
+            <div>
+              <div id="hypothesisRemovedLabel" class="label">Filtered out by controls</div>
+              <div id="hypothesisRemovedList" class="hypo-list"></div>
+            </div>
+          </section>
+        </div>
+        <div id="reviewView" class="workspace-pane workspace-view card main p12">
+          <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div id="reviewQueueSubtitle" class="label" style="margin:0">Claims requiring human review</div>
+            <button id="refreshReviewQueue" class="btn tiny">Refresh</button>
+          </div>
+          <div class="review-layout">
+            <div id="reviewFlagsList" class="review-list"></div>
+            <div class="review-panel">
+              <div id="reviewSelectedClaim" class="mono">-</div>
+              <div>
+                <div id="reviewerLabel" class="label" style="margin-bottom:6px">Reviewer</div>
+                <input id="reviewerInput" type="text" placeholder="reviewer_a" />
+              </div>
+              <div>
+                <div id="reviewNotesLabel" class="label" style="margin-bottom:6px">Notes</div>
+                <textarea id="reviewNotesInput" style="min-height:80px" placeholder="Optional notes"></textarea>
+              </div>
+              <div class="row" style="flex-wrap:wrap">
+                <button id="approveClaim" class="btn primary">Approve</button>
+                <button id="rejectClaim" class="btn">Reject</button>
+                <button id="needsEvidenceClaim" class="btn">Needs more evidence</button>
+              </div>
+              <div id="reviewDecisionStatus" class="tiny muted"></div>
+              <div class="review-history">
+                <div id="reviewHistoryLabel" class="label" style="margin:0">Decision history</div>
+                <div id="reviewHistoryList" class="tiny muted"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
       </div>
 
-      <aside class="panel evidence-wrap">
+      <aside class="panel evidence-wrap workspace-assistant-only">
         <div class="evidence-head">
           <div>
             <span id="evidenceNodesLabel" style="display:flex;align-items:center;gap:8px"><span class="material-symbols-outlined" style="font-size:18px;color:var(--muted)">view_list</span>Evidence Nodes</span>
@@ -1419,6 +1656,49 @@ PAGE_TEMPLATE = Template(
         </div>
       </div>
     </div>
+    <div id="profileDrawer" class="settings-modal" aria-hidden="true">
+      <div id="profileDrawerBackdrop" class="settings-modal-backdrop"></div>
+      <div class="settings-modal-panel">
+        <div class="settings-modal-head">
+          <strong id="profileDrawerTitle" class="settings-section-title">Edit profile</strong>
+          <button id="closeProfileDrawerIcon" class="icon-btn" title="Close profile editor"><span class="material-symbols-outlined">close</span></button>
+        </div>
+        <div class="settings-modal-body">
+          <section class="settings-section">
+            <div class="row" style="gap:14px;align-items:center;margin-bottom:14px">
+              <div id="profileAvatarPreview" class="profile-avatar-preview">
+                <img id="profileAvatarPreviewImg" class="hidden" alt="" />
+                <span id="profileAvatarPreviewInitials">U</span>
+              </div>
+              <div class="stack6">
+                <input id="profileAvatarInput" type="file" accept="image/png,image/jpeg,image/webp" />
+                <button id="clearProfileAvatar" class="btn tiny" type="button">Remove photo</button>
+                <div id="profileAvatarHint" class="tiny muted">PNG or JPEG, up to 256 KB.</div>
+              </div>
+            </div>
+            <div class="stack6">
+              <div>
+                <div id="profileDisplayNameLabel" class="label" style="margin-bottom:6px">Display name</div>
+                <input id="profileDisplayName" type="text" placeholder="Dr. Jane Investigator" />
+              </div>
+              <div>
+                <div id="profileTitleLabel" class="label" style="margin-bottom:6px">Title / role</div>
+                <input id="profileTitle" type="text" placeholder="Principal investigator" />
+              </div>
+              <div>
+                <div id="profileInstitutionLabel" class="label" style="margin-bottom:6px">Institution</div>
+                <input id="profileInstitution" type="text" placeholder="Research institute" />
+              </div>
+              <div id="profileSaveStatus" class="tiny muted"></div>
+            </div>
+          </section>
+        </div>
+        <div class="settings-modal-footer">
+          <button id="closeProfileDrawer" class="btn" type="button">Cancel</button>
+          <button id="saveProfile" class="btn primary" type="button">Save profile</button>
+        </div>
+      </div>
+    </div>
     <div id="dbExplorerModal" class="settings-modal" aria-hidden="true">
       <div id="dbExplorerModalBackdrop" class="settings-modal-backdrop"></div>
       <div class="settings-modal-panel">
@@ -1450,83 +1730,6 @@ PAGE_TEMPLATE = Template(
             <button id="dbNextPage" class="btn">Next</button>
           </div>
           <button id="closeDbExplorer" class="btn">Close</button>
-        </div>
-      </div>
-    </div>
-    <div id="reviewQueueModal" class="settings-modal" aria-hidden="true">
-      <div id="reviewQueueModalBackdrop" class="settings-modal-backdrop"></div>
-      <div class="settings-modal-panel">
-        <div class="settings-modal-head">
-          <strong id="reviewQueueTitle" class="settings-section-title">Review queue</strong>
-          <button id="closeReviewQueueIcon" class="icon-btn" title="Close review queue"><span class="material-symbols-outlined">close</span></button>
-        </div>
-        <div class="settings-modal-body">
-          <section class="settings-section">
-            <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
-              <div id="reviewQueueSubtitle" class="label" style="margin:0">Claims requiring human review</div>
-              <button id="refreshReviewQueue" class="btn tiny">Refresh</button>
-            </div>
-            <div class="review-layout">
-              <div id="reviewFlagsList" class="review-list"></div>
-              <div class="review-panel">
-                <div id="reviewSelectedClaim" class="mono">-</div>
-                <div>
-                  <div id="reviewerLabel" class="label" style="margin-bottom:6px">Reviewer</div>
-                  <input id="reviewerInput" type="text" placeholder="reviewer_a" />
-                </div>
-                <div>
-                  <div id="reviewNotesLabel" class="label" style="margin-bottom:6px">Notes</div>
-                  <textarea id="reviewNotesInput" style="min-height:80px" placeholder="Optional notes"></textarea>
-                </div>
-                <div class="row" style="flex-wrap:wrap">
-                  <button id="approveClaim" class="btn primary">Approve</button>
-                  <button id="rejectClaim" class="btn">Reject</button>
-                  <button id="needsEvidenceClaim" class="btn">Needs more evidence</button>
-                </div>
-                <div id="reviewDecisionStatus" class="tiny muted"></div>
-                <div class="review-history">
-                  <div id="reviewHistoryLabel" class="label" style="margin:0">Decision history</div>
-                  <div id="reviewHistoryList" class="tiny muted"></div>
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
-        <div class="settings-modal-footer">
-          <button id="closeReviewQueue" class="btn">Close</button>
-        </div>
-      </div>
-    </div>
-    <div id="hypothesisQueueModal" class="settings-modal" aria-hidden="true">
-      <div id="hypothesisQueueModalBackdrop" class="settings-modal-backdrop"></div>
-      <div class="settings-modal-panel">
-        <div class="settings-modal-head">
-          <strong id="hypothesisQueueTitle" class="settings-section-title">Hypothesis queue</strong>
-          <button id="closeHypothesisQueueIcon" class="icon-btn" title="Close hypothesis queue"><span class="material-symbols-outlined">close</span></button>
-        </div>
-        <div class="settings-modal-body">
-          <section class="settings-section hypo-controls">
-            <div class="row" style="justify-content:space-between;align-items:center">
-              <div id="hypothesisControlsLabel" class="label" style="margin:0">Promotion controls</div>
-              <button id="refreshHypothesisQueue" class="btn tiny">Refresh</button>
-            </div>
-            <label class="small"><input id="hypoRequireSignoff" type="checkbox" checked /> <span id="hypoRequireSignoffLabel">Require review signoff</span></label>
-            <label class="small"><input id="hypoEnforceCausalGate" type="checkbox" /> <span id="hypoEnforceCausalGateLabel">Enforce causal gate</span></label>
-            <div id="hypothesisMeta" class="tiny muted">-</div>
-          </section>
-          <section class="settings-section hypo-grid">
-            <div>
-              <div id="hypothesisPromotedLabel" class="label">Promoted hypotheses</div>
-              <div id="hypothesisQueueList" class="hypo-list"></div>
-            </div>
-            <div>
-              <div id="hypothesisRemovedLabel" class="label">Filtered out by controls</div>
-              <div id="hypothesisRemovedList" class="hypo-list"></div>
-            </div>
-          </section>
-        </div>
-        <div class="settings-modal-footer">
-          <button id="closeHypothesisQueue" class="btn">Close</button>
         </div>
       </div>
     </div>
@@ -1577,6 +1780,10 @@ PAGE_TEMPLATE = Template(
         hypothesisRows: [],
         hypothesisRemovedEntities: [],
         hypothesisLimit: 8,
+        activeView: 'assistant',
+        userProfile: null,
+        profileAvatarObjectUrl: '',
+        profileMenuOpen: false,
         tutorial: {
           running: false,
           stepIndex: 0,
@@ -1607,6 +1814,8 @@ PAGE_TEMPLATE = Template(
         en: {
           nav_assistant: 'Assistant',
           nav_sessions: 'Saved Sessions',
+          nav_hypothesis: 'Hypothesis queue',
+          nav_review: 'Review queue',
           filter_title: 'Evidence Filters',
           evidence_type: 'Evidence type',
           publication_date: 'Publication date',
@@ -1740,6 +1949,19 @@ PAGE_TEMPLATE = Template(
           copied_claims: 'Copied {count} claim ids with DOIs.',
           settings_applied: 'Settings applied for this session.',
           profile_disabled: 'Profile controls are not enabled in simple investigator mode.',
+          profile_menu_edit: 'Edit profile',
+          profile_menu_settings: 'Settings',
+          profile_menu_logout: 'Logout',
+          profile_drawer_title: 'Edit profile',
+          profile_display_name: 'Display name',
+          profile_title: 'Title / role',
+          profile_institution: 'Institution',
+          profile_remove_photo: 'Remove photo',
+          profile_avatar_hint: 'PNG or JPEG, up to 256 KB.',
+          profile_save: 'Save profile',
+          profile_saved: 'Profile updated.',
+          profile_save_failed: 'Could not save profile.',
+          profile_guest_name: 'Guest investigator',
           compare_prompt: 'Provide two claim ids to compare.',
           shared_supporting: 'shared supporting',
           shared_contradicting: 'shared contradicting',
@@ -1811,6 +2033,8 @@ PAGE_TEMPLATE = Template(
         es: {
           nav_assistant: 'Asistente',
           nav_sessions: 'Sesiones guardadas',
+          nav_hypothesis: 'Cola de hipotesis',
+          nav_review: 'Cola de revision',
           filter_title: 'Filtros de evidencia',
           evidence_type: 'Tipo de evidencia',
           publication_date: 'Fecha de publicacion',
@@ -1943,6 +2167,19 @@ PAGE_TEMPLATE = Template(
           copied_claims: 'Se copiaron {count} ids con DOI.',
           settings_applied: 'Configuracion aplicada para esta sesion.',
           profile_disabled: 'Los controles de perfil no estan habilitados en modo investigador simple.',
+          profile_menu_edit: 'Editar perfil',
+          profile_menu_settings: 'Configuracion',
+          profile_menu_logout: 'Cerrar sesion',
+          profile_drawer_title: 'Editar perfil',
+          profile_display_name: 'Nombre visible',
+          profile_title: 'Cargo / rol',
+          profile_institution: 'Institucion',
+          profile_remove_photo: 'Quitar foto',
+          profile_avatar_hint: 'PNG o JPEG, hasta 256 KB.',
+          profile_save: 'Guardar perfil',
+          profile_saved: 'Perfil actualizado.',
+          profile_save_failed: 'No se pudo guardar el perfil.',
+          profile_guest_name: 'Investigador invitado',
           compare_prompt: 'Ingresa dos ids de claim para comparar.',
           shared_supporting: 'soporte compartido',
           shared_contradicting: 'contradicciones compartidas',
@@ -2117,6 +2354,8 @@ PAGE_TEMPLATE = Template(
         const textById = {
           navAssistant: t('nav_assistant'),
           navSessions: t('nav_sessions'),
+          navHypothesis: t('nav_hypothesis'),
+          navReview: t('nav_review'),
           filterTitle: t('filter_title'),
           evidenceTypeLabel: t('evidence_type'),
           publicationDateLabel: t('publication_date'),
@@ -2174,6 +2413,16 @@ PAGE_TEMPLATE = Template(
           hypothesisPromotedLabel: t('promoted_hypotheses'),
           hypothesisRemovedLabel: t('filtered_out_controls'),
           closeHypothesisQueue: t('close'),
+          profileDrawerTitle: t('profile_drawer_title'),
+          profileMenuEditLabel: t('profile_menu_edit'),
+          profileMenuSettingsLabel: t('profile_menu_settings'),
+          profileMenuLogoutLabel: t('profile_menu_logout'),
+          profileDisplayNameLabel: t('profile_display_name'),
+          profileTitleLabel: t('profile_title'),
+          profileInstitutionLabel: t('profile_institution'),
+          clearProfileAvatar: t('profile_remove_photo'),
+          profileAvatarHint: t('profile_avatar_hint'),
+          saveProfile: t('profile_save'),
           tutorialTitle: t('tutorial_title'),
           tutorialBack: t('tutorial_back'),
           tutorialStop: t('tutorial_stop'),
@@ -2214,25 +2463,9 @@ PAGE_TEMPLATE = Template(
         if (notesInput) {
           notesInput.placeholder = t('notes');
         }
-        const profileBtn = byId('openProfile');
-        if (profileBtn) {
-          profileBtn.title = t('review_queue');
-        }
-        const tutorialModeSelect = byId('tutorialModeSelect');
-        if (tutorialModeSelect) {
-          tutorialModeSelect.title = t('tutorial_mode_label');
-          const shortOption = tutorialModeSelect.querySelector('option[value="short"]');
-          const fullOption = tutorialModeSelect.querySelector('option[value="full"]');
-          if (shortOption) {
-            shortOption.textContent = t('tutorial_mode_short');
-          }
-          if (fullOption) {
-            fullOption.textContent = t('tutorial_mode_full');
-          }
-        }
-        const hypothesisBtn = byId('openHypothesisQueue');
-        if (hypothesisBtn) {
-          hypothesisBtn.title = t('hypothesis_queue');
+        const profileMenuBtn = byId('openProfileMenu');
+        if (profileMenuBtn) {
+          profileMenuBtn.title = t('profile_menu_edit');
         }
 
         const minRelLabel = byId('minReliabilityLabel');
@@ -2247,6 +2480,233 @@ PAGE_TEMPLATE = Template(
         if (state.currentComparePayload) {
           renderComparePayload(state.currentComparePayload);
         }
+        renderProfileUI();
+      }
+
+      function profileSummaryFromState() {
+        const profile = state.userProfile && typeof state.userProfile === 'object' ? state.userProfile : {};
+        const email = state.currentUser
+          ? String(state.currentUser.email || state.currentUser.user_id || '')
+          : 'guest@local';
+        const displayName = String(profile.display_name || '').trim();
+        const initials = String(profile.initials || '').trim()
+          || (displayName || email ? displayName.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase() : 'U');
+        return {
+          email,
+          displayName: displayName || (state.isAuthenticated ? email : t('profile_guest_name')),
+          title: String(profile.title || ''),
+          institution: String(profile.institution || ''),
+          hasAvatar: Boolean(profile.has_avatar),
+          initials: initials || 'U',
+        };
+      }
+
+      function profileAvatarUrl() {
+        if (!state.userProfile || !state.userProfile.has_avatar) {
+          return '';
+        }
+        const stamp = encodeURIComponent(String(state.userProfile.profile_updated_at || Date.now()));
+        return '/api/auth/profile/avatar?v=' + stamp;
+      }
+
+      function setAvatarOnElement(container, imgEl, initialsEl, summary) {
+        if (!container) {
+          return;
+        }
+        const url = summary.hasAvatar ? profileAvatarUrl() : '';
+        if (imgEl) {
+          if (url) {
+            imgEl.src = url;
+            imgEl.classList.remove('hidden');
+          } else {
+            imgEl.removeAttribute('src');
+            imgEl.classList.add('hidden');
+          }
+        }
+        if (initialsEl) {
+          initialsEl.textContent = summary.initials;
+          initialsEl.classList.toggle('hidden', Boolean(url));
+        }
+        const nestedImg = container.querySelector('img');
+        const nestedInitials = container.querySelector('span');
+        if (nestedImg && nestedImg !== imgEl) {
+          if (url) {
+            nestedImg.src = url;
+            nestedImg.classList.remove('hidden');
+          } else {
+            nestedImg.removeAttribute('src');
+            nestedImg.classList.add('hidden');
+          }
+        }
+        if (nestedInitials && nestedInitials !== initialsEl) {
+          nestedInitials.textContent = summary.initials;
+          nestedInitials.classList.toggle('hidden', Boolean(url));
+        }
+      }
+
+      function renderProfileUI() {
+        const summary = profileSummaryFromState();
+        const nameEl = byId('profileMenuName');
+        const emailEl = byId('profileMenuEmail');
+        if (nameEl) {
+          nameEl.textContent = summary.displayName;
+        }
+        if (emailEl) {
+          emailEl.textContent = summary.email;
+        }
+        setAvatarOnElement(byId('openProfileMenu'), byId('profileAvatarImg'), byId('profileAvatarInitials'), summary);
+        setAvatarOnElement(byId('profileMenuAvatar'), null, byId('profileMenuInitials'), summary);
+        setAvatarOnElement(byId('profileAvatarPreview'), byId('profileAvatarPreviewImg'), byId('profileAvatarPreviewInitials'), summary);
+      }
+
+      function closeProfileMenu() {
+        const menu = byId('profileMenu');
+        const button = byId('openProfileMenu');
+        state.profileMenuOpen = false;
+        if (menu) {
+          menu.classList.add('hidden');
+          menu.setAttribute('aria-hidden', 'true');
+        }
+        if (button) {
+          button.setAttribute('aria-expanded', 'false');
+        }
+      }
+
+      function toggleProfileMenu() {
+        const menu = byId('profileMenu');
+        const button = byId('openProfileMenu');
+        if (!menu || !button) {
+          return;
+        }
+        const nextOpen = !state.profileMenuOpen;
+        state.profileMenuOpen = nextOpen;
+        menu.classList.toggle('hidden', !nextOpen);
+        menu.setAttribute('aria-hidden', nextOpen ? 'false' : 'true');
+        button.setAttribute('aria-expanded', nextOpen ? 'true' : 'false');
+        if (nextOpen) {
+          renderProfileUI();
+        }
+      }
+
+      function openProfileDrawer() {
+        closeProfileMenu();
+        const drawer = byId('profileDrawer');
+        if (!drawer) {
+          return;
+        }
+        const profile = state.userProfile || {};
+        const displayName = byId('profileDisplayName');
+        const title = byId('profileTitle');
+        const institution = byId('profileInstitution');
+        const status = byId('profileSaveStatus');
+        if (displayName) {
+          displayName.value = String(profile.display_name || '');
+        }
+        if (title) {
+          title.value = String(profile.title || '');
+        }
+        if (institution) {
+          institution.value = String(profile.institution || '');
+        }
+        if (status) {
+          status.textContent = '';
+        }
+        const avatarInput = byId('profileAvatarInput');
+        if (avatarInput) {
+          avatarInput.value = '';
+        }
+        renderProfileUI();
+        drawer.classList.add('open');
+        drawer.setAttribute('aria-hidden', 'false');
+      }
+
+      function closeProfileDrawer() {
+        const drawer = byId('profileDrawer');
+        if (!drawer) {
+          return;
+        }
+        drawer.classList.remove('open');
+        drawer.setAttribute('aria-hidden', 'true');
+      }
+
+      async function saveProfile() {
+        const status = byId('profileSaveStatus');
+        const displayName = String(byId('profileDisplayName') && byId('profileDisplayName').value ? byId('profileDisplayName').value : '').trim();
+        const title = String(byId('profileTitle') && byId('profileTitle').value ? byId('profileTitle').value : '').trim();
+        const institution = String(byId('profileInstitution') && byId('profileInstitution').value ? byId('profileInstitution').value : '').trim();
+        const avatarInput = byId('profileAvatarInput');
+        const payload = {
+          display_name: displayName,
+          title,
+          institution,
+          clear_avatar: false,
+        };
+        if (status) {
+          status.textContent = 'Saving...';
+        }
+        try {
+          if (avatarInput && avatarInput.files && avatarInput.files[0]) {
+            const file = avatarInput.files[0];
+            if (file.size > 256 * 1024) {
+              throw new Error('Avatar must be 256 KB or smaller.');
+            }
+            const buffer = await file.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            bytes.forEach((byte) => {
+              binary += String.fromCharCode(byte);
+            });
+            payload.avatar_base64 = btoa(binary);
+            payload.avatar_mime_type = String(file.type || 'image/png');
+          }
+          const resp = await fetch('/api/auth/profile', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || t('profile_save_failed'));
+          state.userProfile = data.profile || state.userProfile;
+          renderProfileUI();
+          if (status) {
+            status.textContent = t('profile_saved');
+          }
+          closeProfileDrawer();
+        } catch (error) {
+          if (status) {
+            status.textContent = String(error);
+          }
+        }
+      }
+
+      async function clearProfileAvatarSelection() {
+        const status = byId('profileSaveStatus');
+        if (status) {
+          status.textContent = 'Saving...';
+        }
+        try {
+          const resp = await fetch('/api/auth/profile', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              display_name: String(byId('profileDisplayName') && byId('profileDisplayName').value ? byId('profileDisplayName').value : '').trim(),
+              title: String(byId('profileTitle') && byId('profileTitle').value ? byId('profileTitle').value : '').trim(),
+              institution: String(byId('profileInstitution') && byId('profileInstitution').value ? byId('profileInstitution').value : '').trim(),
+              clear_avatar: true,
+            }),
+          });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || t('profile_save_failed'));
+          state.userProfile = data.profile || state.userProfile;
+          renderProfileUI();
+          if (status) {
+            status.textContent = t('profile_saved');
+          }
+        } catch (error) {
+          if (status) {
+            status.textContent = String(error);
+          }
+        }
       }
 
       function setChatStatus(text, isError = false) {
@@ -2260,31 +2720,37 @@ PAGE_TEMPLATE = Template(
       }
 
       function updateAuthUI() {
-        const badge = byId('authBadge');
-        const logoutBtn = byId('logoutBtn');
+        const logoutMenu = byId('logoutFromMenu');
         const navSessions = byId('navSessions');
+        const navHypothesis = byId('navHypothesis');
+        const navReview = byId('navReview');
         const sendBtn = byId('send');
         const canUseApp = !state.authEnabled || state.isAuthenticated;
-        if (badge) {
-          badge.textContent = state.isAuthenticated && state.currentUser
-            ? String(state.currentUser.email || state.currentUser.user_id || 'user')
-            : 'guest';
+        if (logoutMenu) {
+          logoutMenu.classList.toggle('hidden', !state.isAuthenticated);
         }
-        if (logoutBtn) {
-          logoutBtn.classList.toggle('hidden', !state.isAuthenticated);
-        }
-        if (navSessions) {
-          navSessions.disabled = !canUseApp;
-        }
+        [navSessions, navHypothesis, navReview].forEach((button) => {
+          if (button) {
+            button.disabled = !canUseApp;
+          }
+        });
         if (sendBtn) {
           sendBtn.disabled = !canUseApp;
         }
+        renderProfileUI();
       }
 
       async function fetchAuthStatus() {
         if (!state.authEnabled) {
           state.isAuthenticated = true;
           state.currentUser = { user_id: 'anonymous', email: 'anonymous@local' };
+          state.userProfile = {
+            display_name: '',
+            title: '',
+            institution: '',
+            has_avatar: false,
+            initials: 'U',
+          };
           state.csrfToken = '';
           updateAuthUI();
           return;
@@ -2295,11 +2761,13 @@ PAGE_TEMPLATE = Template(
           if (!resp.ok) throw new Error(data.error || 'auth status failed');
           state.isAuthenticated = Boolean(data.authenticated);
           state.currentUser = data.user || null;
+          state.userProfile = data.profile || null;
           state.csrfToken = String(data.csrf_token || '');
           updateAuthUI();
         } catch (_) {
           state.isAuthenticated = false;
           state.currentUser = null;
+          state.userProfile = null;
           state.csrfToken = '';
           updateAuthUI();
         }
@@ -2836,32 +3304,12 @@ PAGE_TEMPLATE = Template(
           byId('reviewNotesInput').value = '';
           await fetchReviewFlags();
           await fetchReviewHistory(claimId);
-          if (byId('hypothesisQueueModal').classList.contains('open')) {
+          if (state.activeView === 'hypothesis') {
             await fetchHypothesisQueue();
           }
         } catch (error) {
           status.textContent = String(error);
         }
-      }
-
-      function openReviewQueue() {
-        const modal = byId('reviewQueueModal');
-        if (!modal) {
-          return;
-        }
-        modal.classList.add('open');
-        modal.setAttribute('aria-hidden', 'false');
-        tutorialSignal('review_queue_opened');
-        fetchReviewFlags();
-      }
-
-      function closeReviewQueue() {
-        const modal = byId('reviewQueueModal');
-        if (!modal) {
-          return;
-        }
-        modal.classList.remove('open');
-        modal.setAttribute('aria-hidden', 'true');
       }
 
       function renderHypothesisQueue(payload) {
@@ -2935,26 +3383,6 @@ PAGE_TEMPLATE = Template(
         } catch (error) {
           meta.textContent = String(error);
         }
-      }
-
-      function openHypothesisQueue() {
-        const modal = byId('hypothesisQueueModal');
-        if (!modal) {
-          return;
-        }
-        modal.classList.add('open');
-        modal.setAttribute('aria-hidden', 'false');
-        tutorialSignal('hypothesis_queue_opened');
-        fetchHypothesisQueue();
-      }
-
-      function closeHypothesisQueue() {
-        const modal = byId('hypothesisQueueModal');
-        if (!modal) {
-          return;
-        }
-        modal.classList.remove('open');
-        modal.setAttribute('aria-hidden', 'true');
       }
 
       function renderLineageDrawer(payload) {
@@ -3951,29 +4379,59 @@ PAGE_TEMPLATE = Template(
       }
 
       function switchView(viewName) {
-        if (state.authEnabled && !state.isAuthenticated && viewName === 'sessions') {
-          setChatStatus('Please sign in to access saved sessions.', true);
+        const protectedViews = new Set(['sessions', 'hypothesis', 'review']);
+        if (state.authEnabled && !state.isAuthenticated && protectedViews.has(viewName)) {
+          setChatStatus('Please sign in to access this workspace.', true);
           updateAuthUI();
           return;
         }
-        const assistant = byId('assistantView');
-        const sessions = byId('sessionsView');
-        const navAssistant = byId('navAssistant');
-        const navSessions = byId('navSessions');
-
-        if (viewName === 'sessions') {
-          assistant.classList.add('hidden');
-          sessions.classList.remove('hidden');
-          navAssistant.classList.remove('active');
-          navSessions.classList.add('active');
-          tutorialSignal('sessions_view_opened');
-          renderSavedSessions();
+        const views = {
+          assistant: byId('assistantView'),
+          sessions: byId('sessionsView'),
+          hypothesis: byId('hypothesisView'),
+          review: byId('reviewView'),
+        };
+        const navByView = {
+          assistant: byId('navAssistant'),
+          sessions: byId('navSessions'),
+          hypothesis: byId('navHypothesis'),
+          review: byId('navReview'),
+        };
+        const layout = document.querySelector('main.layout');
+        if (!views[viewName] || !layout) {
           return;
         }
-        sessions.classList.add('hidden');
-        assistant.classList.remove('hidden');
-        navSessions.classList.remove('active');
-        navAssistant.classList.add('active');
+        if (state.activeView === viewName) {
+          return;
+        }
+        state.activeView = viewName;
+        layout.classList.remove('view-assistant', 'view-sessions', 'view-hypothesis', 'view-review');
+        layout.classList.add('view-' + viewName);
+        Object.keys(views).forEach((key) => {
+          const panel = views[key];
+          if (panel) {
+            panel.classList.toggle('is-active', key === viewName);
+          }
+        });
+        Object.keys(navByView).forEach((key) => {
+          const nav = navByView[key];
+          if (nav) {
+            nav.classList.toggle('active', key === viewName);
+          }
+        });
+        document.querySelectorAll('.workspace-assistant-only').forEach((panel) => {
+          panel.classList.toggle('hidden', viewName !== 'assistant');
+        });
+        if (viewName === 'sessions') {
+          tutorialSignal('sessions_view_opened');
+          renderSavedSessions();
+        } else if (viewName === 'hypothesis') {
+          tutorialSignal('hypothesis_queue_opened');
+          fetchHypothesisQueue();
+        } else if (viewName === 'review') {
+          tutorialSignal('review_queue_opened');
+          fetchReviewFlags();
+        }
       }
 
       function applySettingsFromState() {
@@ -4284,41 +4742,41 @@ PAGE_TEMPLATE = Template(
             bodyKey: 'tutorial_step_sessions_list_body',
             readyWhen: () => {
               const view = byId('sessionsView');
-              return Boolean(view && !view.classList.contains('hidden'));
+              return Boolean(view && view.classList.contains('is-active'));
             },
           },
           {
             id: 'open_hypothesis_queue',
-            selector: '#openHypothesisQueue',
+            selector: '#navHypothesis',
             titleKey: 'tutorial_step_hypothesis_open_title',
             bodyKey: 'tutorial_step_hypothesis_open_body',
             requiredAction: 'hypothesis_queue_opened',
           },
           {
             id: 'hypothesis_queue',
-            selector: '#hypothesisQueueModal .hypo-grid',
+            selector: '#hypothesisView .hypo-grid',
             titleKey: 'tutorial_step_hypothesis_queue_title',
             bodyKey: 'tutorial_step_hypothesis_queue_body',
             readyWhen: () => {
-              const modal = byId('hypothesisQueueModal');
-              return Boolean(modal && modal.classList.contains('open'));
+              const view = byId('hypothesisView');
+              return Boolean(view && view.classList.contains('is-active'));
             },
           },
           {
             id: 'open_review_queue',
-            selector: '#openProfile',
+            selector: '#navReview',
             titleKey: 'tutorial_step_review_open_title',
             bodyKey: 'tutorial_step_review_open_body',
             requiredAction: 'review_queue_opened',
           },
           {
             id: 'review_queue',
-            selector: '#reviewQueueModal .review-layout',
+            selector: '#reviewView .review-layout',
             titleKey: 'tutorial_step_review_queue_title',
             bodyKey: 'tutorial_step_review_queue_body',
             readyWhen: () => {
-              const modal = byId('reviewQueueModal');
-              return Boolean(modal && modal.classList.contains('open'));
+              const view = byId('reviewView');
+              return Boolean(view && view.classList.contains('is-active'));
             },
           },
           {
@@ -4561,22 +5019,45 @@ PAGE_TEMPLATE = Template(
       });
       bindClick('navAssistant', () => switchView('assistant'));
       bindClick('navSessions', () => switchView('sessions'));
+      bindClick('navHypothesis', () => switchView('hypothesis'));
+      bindClick('navReview', () => switchView('review'));
       bindClick('refreshSessions', renderSavedSessions);
-      bindClick('openHypothesisQueue', openHypothesisQueue);
-      bindClick('closeHypothesisQueue', closeHypothesisQueue);
-      bindClick('closeHypothesisQueueIcon', closeHypothesisQueue);
-      bindClick('hypothesisQueueModalBackdrop', closeHypothesisQueue);
       bindClick('refreshHypothesisQueue', fetchHypothesisQueue);
       bindEvent('hypoRequireSignoff', 'change', fetchHypothesisQueue);
       bindEvent('hypoEnforceCausalGate', 'change', fetchHypothesisQueue);
-      bindClick('openProfile', openReviewQueue);
-      bindClick('closeReviewQueue', closeReviewQueue);
-      bindClick('closeReviewQueueIcon', closeReviewQueue);
-      bindClick('reviewQueueModalBackdrop', closeReviewQueue);
       bindClick('refreshReviewQueue', fetchReviewFlags);
       bindClick('approveClaim', () => submitReviewDecision('approve'));
       bindClick('rejectClaim', () => submitReviewDecision('reject'));
       bindClick('needsEvidenceClaim', () => submitReviewDecision('needs_more_evidence'));
+      bindClick('openProfileMenu', toggleProfileMenu);
+      bindClick('openProfileEditor', openProfileDrawer);
+      bindClick('openSettingsFromMenu', () => {
+        closeProfileMenu();
+        openSettingsDrawer();
+      });
+      bindClick('logoutFromMenu', () => {
+        closeProfileMenu();
+        logout();
+      });
+      bindClick('closeProfileDrawer', closeProfileDrawer);
+      bindClick('closeProfileDrawerIcon', closeProfileDrawer);
+      bindClick('profileDrawerBackdrop', closeProfileDrawer);
+      bindClick('saveProfile', saveProfile);
+      bindClick('clearProfileAvatar', clearProfileAvatarSelection);
+      document.addEventListener('click', (event) => {
+        const wrap = document.querySelector('.profile-menu-wrap');
+        if (!wrap || !state.profileMenuOpen) {
+          return;
+        }
+        if (!wrap.contains(event.target)) {
+          closeProfileMenu();
+        }
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          closeProfileMenu();
+        }
+      });
       bindClick('status-db', openDbExplorer);
       bindEvent('status-db', 'keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -4609,7 +5090,6 @@ PAGE_TEMPLATE = Template(
         state.dbBrowserOffset = state.dbBrowserOffset + state.dbBrowserLimit;
         fetchDbExplorerRows(false);
       });
-      bindClick('openSettings', openSettingsDrawer);
       bindClick('startShortTutorial', () => {
         closeSettingsDrawer();
         tutorialStart(true, 'short');
@@ -4641,7 +5121,6 @@ PAGE_TEMPLATE = Template(
       bindClick('runCompare', runCompare);
       bindClick('refreshDiagnostics', fetchRecentDiagnostics);
       bindClick('refreshFailureAtlas', fetchFailureAtlas);
-      bindClick('logoutBtn', logout);
       bindClick('saveSession', saveSession);
       bindClick('exportSummary', exportSummary);
       bindClick('copyCitations', copyCitations);
@@ -6558,6 +7037,33 @@ def _is_app_page(path: str) -> bool:
     return path in APP_PAGE_PATHS
 
 
+def _profile_payload_for_client(profile: dict[str, object]) -> dict[str, object]:
+    summary = public_profile_summary(profile)
+    return {
+        **summary,
+        "profile_updated_at": str(profile.get("profile_updated_at") or ""),
+    }
+
+
+def _decode_profile_avatar(payload: dict[str, object]) -> tuple[bytes | None, str | None, bool]:
+    clear_avatar = bool(payload.get("clear_avatar", False))
+    if clear_avatar:
+        return None, None, True
+    raw_avatar = payload.get("avatar_base64")
+    if raw_avatar is None:
+        return None, None, False
+    avatar_text = str(raw_avatar or "").strip()
+    if not avatar_text:
+        return b"", "", True
+    mime_type = str(payload.get("avatar_mime_type") or "image/png").strip().lower()
+    if mime_type not in {"image/png", "image/jpeg", "image/jpg", "image/webp"}:
+        raise ValueError("avatar_mime_type must be image/png, image/jpeg, or image/webp")
+    avatar_bytes = base64.b64decode(avatar_text, validate=True)
+    if len(avatar_bytes) > MAX_PROFILE_AVATAR_BYTES:
+        raise ValueError(f"Avatar must be {MAX_PROFILE_AVATAR_BYTES} bytes or smaller")
+    return avatar_bytes, mime_type, False
+
+
 class ChatHandler(BaseHTTPRequestHandler):
     server_version = "ALSIntelChat/2.0"
     protocol_version = "HTTP/1.1"
@@ -6788,11 +7294,6 @@ class ChatHandler(BaseHTTPRequestHandler):
                     self.send_header("Location", next_query)
                     self.end_headers()
                     return
-                if path in {"/", "/index.html"}:
-                    self.send_response(HTTPStatus.FOUND)
-                    self.send_header("Location", APP_ROUTE)
-                    self.end_headers()
-                    return
                 if not _is_public_page(path) and not _is_app_page(path):
                     self.send_response(HTTPStatus.FOUND)
                     self.send_header("Location", APP_ROUTE)
@@ -6800,7 +7301,11 @@ class ChatHandler(BaseHTTPRequestHandler):
                     return
 
         if path in {"/", "/index.html"}:
-            body = render_landing_page(auth_enabled=bool(settings["auth_enabled"]))
+            authenticated = auth_user is not None
+            body = render_landing_page(
+                auth_enabled=bool(settings["auth_enabled"]),
+                authenticated=authenticated,
+            )
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -6921,6 +7426,11 @@ class ChatHandler(BaseHTTPRequestHandler):
               session_token = rotated_token or token
               if session_token:
                 csrf_token = self._csrf_token_for_session(session_token)
+            profile_summary: dict[str, object] | None = None
+            if user is not None:
+              loaded = store.get_user_profile(user_id=str(user["user_id"]), include_avatar_bytes=False)
+              if loaded is not None:
+                profile_summary = _profile_payload_for_client(loaded)
             extra_headers = None
             if rotated_token:
               extra_headers = {
@@ -6937,6 +7447,7 @@ class ChatHandler(BaseHTTPRequestHandler):
                 "auth_enabled": bool(settings.get("auth_enabled", False)),
                 "authenticated": user is not None,
                 "user": user,
+                "profile": profile_summary,
                 "csrf_token": csrf_token,
               },
               extra_headers=extra_headers,
@@ -6944,6 +7455,48 @@ class ChatHandler(BaseHTTPRequestHandler):
           except Exception as exc:
             _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
           return
+
+        if path == "/api/auth/profile":
+            try:
+                settings = self._settings()
+                user = self._require_auth(settings)
+                if user is None:
+                    return
+                store = self._store(str(settings["db_path"]))
+                profile = store.get_user_profile(user_id=str(user["user_id"]), include_avatar_bytes=False)
+                if profile is None:
+                    _json_response(self, HTTPStatus.NOT_FOUND, {"error": "Profile not found"})
+                    return
+                _json_response(self, HTTPStatus.OK, {"profile": _profile_payload_for_client(profile)})
+            except Exception as exc:
+                _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return
+
+        if path == "/api/auth/profile/avatar":
+            try:
+                settings = self._settings()
+                user = self._require_auth(settings)
+                if user is None:
+                    return
+                store = self._store(str(settings["db_path"]))
+                profile = store.get_user_profile(user_id=str(user["user_id"]), include_avatar_bytes=True)
+                if profile is None or not profile.get("has_avatar"):
+                    self.send_error(HTTPStatus.NOT_FOUND, "Avatar not found")
+                    return
+                avatar_bytes = profile.get("avatar_data")
+                if not isinstance(avatar_bytes, (bytes, bytearray)) or not avatar_bytes:
+                    self.send_error(HTTPStatus.NOT_FOUND, "Avatar not found")
+                    return
+                mime_type = str(profile.get("avatar_mime_type") or "image/png")
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", mime_type)
+                self.send_header("Content-Length", str(len(avatar_bytes)))
+                self.send_header("Cache-Control", "private, max-age=300")
+                self.end_headers()
+                self.wfile.write(bytes(avatar_bytes))
+            except Exception as exc:
+                _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return
 
         if path == "/api/auth/login-metadata":
             try:
@@ -7366,6 +7919,48 @@ class ChatHandler(BaseHTTPRequestHandler):
             return
 
         _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
+
+    def do_PUT(self) -> None:  # noqa: N802
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path != "/api/auth/profile":
+            _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
+            return
+        try:
+            payload = _read_json_body(self)
+            settings = self._settings()
+            auth_service = self._auth_service()
+            if not self._require_csrf(settings=settings, auth_service=auth_service, path=path):
+                return
+            user = self._require_auth(settings)
+            if user is None:
+                return
+            store = self._store(str(settings["db_path"]))
+            display_name = str(payload.get("display_name") or "").strip()
+            title = str(payload.get("title") or "").strip()
+            institution = str(payload.get("institution") or "").strip()
+            avatar_bytes, avatar_mime_type, clear_avatar = _decode_profile_avatar(payload)
+            updated = store.upsert_user_profile(
+                user_id=str(user["user_id"]),
+                display_name=display_name,
+                title=title,
+                institution=institution,
+                avatar_bytes=avatar_bytes,
+                avatar_mime_type=avatar_mime_type,
+                clear_avatar=clear_avatar,
+            )
+            self._record_activity(
+                settings=settings,
+                user_id=str(user["user_id"]),
+                activity_type="profile_update",
+                endpoint=path,
+                payload={"display_name": display_name, "has_avatar": bool(updated.get("has_avatar"))},
+            )
+            _json_response(self, HTTPStatus.OK, {"profile": _profile_payload_for_client(updated)})
+        except ValueError as exc:
+            _json_response(self, HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        except Exception as exc:
+            _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)

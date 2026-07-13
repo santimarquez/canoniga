@@ -1115,12 +1115,12 @@ def test_authenticated_login_route_redirects_to_app(api_server_auth: str) -> Non
     assert str(headers.get("Location") or "") == "/app"
 
 
-def test_authenticated_root_redirects_to_app(api_server_auth: str) -> None:
+def test_authenticated_root_serves_landing_with_app_cta(api_server_auth: str) -> None:
     req_code, req_data = _request_json(
         api_server_auth,
         "/api/auth/request-link",
         method="POST",
-        payload={"email": "root-redirect@example.com"},
+        payload={"email": "root-landing@example.com"},
     )
     assert req_code == 200
     token = str(req_data.get("magic_link") or "").split("magic_token=", 1)[1].split("&", 1)[0]
@@ -1137,13 +1137,15 @@ def test_authenticated_root_redirects_to_app(api_server_auth: str) -> None:
     opener = urllib.request.build_opener(_NoRedirect())
     try:
         with opener.open(req) as resp:
-            status = resp.status
-            headers = dict(resp.headers.items())
+            code = resp.status
+            body = resp.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
-        status = exc.code
-        headers = dict(exc.headers.items())
-    assert status == 302
-    assert str(headers.get("Location") or "") == "/app"
+        code = exc.code
+        body = exc.read().decode("utf-8")
+    assert code == 200
+    assert "Reduce ALS research uncertainty with traceable, cited intelligence" in body
+    assert 'href="/app"' in body
+    assert "Continue investigating" in body
 
 
 def test_unauthenticated_unknown_page_redirects_to_login(api_server_auth: str) -> None:
@@ -1537,6 +1539,95 @@ def test_auth_logout_revokes_session_and_expires_cookie(api_server_auth: str) ->
     )
     assert status_code == 200
     assert bool(status_data.get("authenticated")) is False
+
+
+def test_auth_status_includes_profile_summary(api_server_auth: str) -> None:
+    req_code, req_data = _request_json(
+        api_server_auth,
+        "/api/auth/request-link",
+        method="POST",
+        payload={"email": "profile-status@example.com"},
+    )
+    assert req_code == 200
+    token = str(req_data.get("magic_link") or "").split("magic_token=", 1)[1].split("&", 1)[0]
+    verify_code, verify_data, verify_headers = _request_json_with_headers(
+        api_server_auth,
+        "/api/auth/verify-link",
+        method="POST",
+        payload={"token": token},
+    )
+    assert verify_code == 200
+    cookie_pair = str(verify_headers.get("Set-Cookie") or "").split(";", 1)[0]
+
+    status_code, status_data = _request_json(
+        api_server_auth,
+        "/api/auth/status",
+        headers={"Cookie": cookie_pair},
+    )
+    assert status_code == 200
+    profile = status_data.get("profile")
+    assert isinstance(profile, dict)
+    assert "initials" in profile
+    assert "display_name" in profile
+
+
+def test_auth_profile_update_and_avatar_round_trip(api_server_auth: str) -> None:
+    import base64
+
+    req_code, req_data = _request_json(
+        api_server_auth,
+        "/api/auth/request-link",
+        method="POST",
+        payload={"email": "profile-edit@example.com"},
+    )
+    assert req_code == 200
+    token = str(req_data.get("magic_link") or "").split("magic_token=", 1)[1].split("&", 1)[0]
+    verify_code, verify_data, verify_headers = _request_json_with_headers(
+        api_server_auth,
+        "/api/auth/verify-link",
+        method="POST",
+        payload={"token": token},
+    )
+    assert verify_code == 200
+    cookie_pair = str(verify_headers.get("Set-Cookie") or "").split(";", 1)[0]
+    csrf_token = str(verify_data.get("csrf_token") or "")
+    avatar_bytes = b"fake-image-bytes"
+    update_code, update_data = _request_json(
+        api_server_auth,
+        "/api/auth/profile",
+        method="PUT",
+        headers={"Cookie": cookie_pair, "X-CSRF-Token": csrf_token},
+        payload={
+            "display_name": "Profile Editor",
+            "title": "Investigator",
+            "institution": "ALS Lab",
+            "avatar_base64": base64.b64encode(avatar_bytes).decode("ascii"),
+            "avatar_mime_type": "image/png",
+        },
+    )
+    assert update_code == 200
+    profile = update_data.get("profile")
+    assert isinstance(profile, dict)
+    assert profile.get("display_name") == "Profile Editor"
+    assert profile.get("has_avatar") is True
+    assert profile.get("initials") == "PE"
+
+    get_code, get_data = _request_json(
+        api_server_auth,
+        "/api/auth/profile",
+        headers={"Cookie": cookie_pair},
+    )
+    assert get_code == 200
+    assert get_data["profile"]["display_name"] == "Profile Editor"
+
+    avatar_req = urllib.request.Request(
+        f"{api_server_auth}/api/auth/profile/avatar",
+        method="GET",
+        headers={"Cookie": cookie_pair},
+    )
+    with urllib.request.urlopen(avatar_req) as resp:
+        assert resp.status == 200
+        assert resp.read() == avatar_bytes
 
 
 def test_session_save_rejects_cross_user_session_takeover(api_server_auth: str) -> None:

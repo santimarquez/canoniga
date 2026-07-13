@@ -514,19 +514,24 @@ $favicon_tag
 )
 
 
-def render_landing_page(*, auth_enabled: bool, github_url: str = DEFAULT_GITHUB_URL) -> bytes:
-    if auth_enabled:
+def render_landing_page(
+    *,
+    auth_enabled: bool,
+    authenticated: bool = False,
+    github_url: str = DEFAULT_GITHUB_URL,
+) -> bytes:
+    if not auth_enabled or authenticated:
+        primary_cta_href = APP_ROUTE
+        primary_cta_label = "Open investigator"
+        hero_cta_label = "Continue investigating"
+        pipeline_cta_label = "Open investigator"
+        database_cta_label = "Continue to the investigator"
+    else:
         primary_cta_href = "/login"
         primary_cta_label = "Get Started"
         hero_cta_label = "Sign in to investigate"
         pipeline_cta_label = "Start investigating"
         database_cta_label = "Sign in to explore the database"
-    else:
-        primary_cta_href = APP_ROUTE
-        primary_cta_label = "Open investigator"
-        hero_cta_label = "Open investigator"
-        pipeline_cta_label = "Open investigator"
-        database_cta_label = "Open the investigator"
 
     html = LANDING_TEMPLATE.substitute(
         favicon_tag=favicon_link_tag(),

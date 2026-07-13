@@ -29,3 +29,10 @@ def test_render_landing_page_auth_disabled_links_to_app() -> None:
     body = render_landing_page(auth_enabled=False).decode("utf-8")
     assert 'href="/app"' in body
     assert "Open investigator" in body
+
+
+def test_render_landing_page_authenticated_links_to_app() -> None:
+    body = render_landing_page(auth_enabled=True, authenticated=True).decode("utf-8")
+    assert 'href="/app"' in body
+    assert "Continue investigating" in body
+    assert 'href="/login"' not in body
