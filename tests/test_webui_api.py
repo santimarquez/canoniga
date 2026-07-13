@@ -1069,15 +1069,22 @@ def test_magic_link_auth_and_user_scoped_sessions(api_server_auth: str) -> None:
     assert not any(s["session_id"] == "sess_user_a" for s in list_b_data["sessions"])
 
 
-def test_unauthenticated_root_redirects_to_login(api_server_auth: str) -> None:
-    code, headers, _ = _request_no_redirect(api_server_auth, "/")
+def test_unauthenticated_root_serves_landing(api_server_auth: str) -> None:
+    code, _, body = _request_no_redirect(api_server_auth, "/")
+    assert code == 200
+    assert "Sign in to investigate" in body
+    assert "/assets/landing-dashboard-mockup.png" in body
+
+
+def test_unauthenticated_app_redirects_to_login(api_server_auth: str) -> None:
+    code, headers, _ = _request_no_redirect(api_server_auth, "/app")
     assert code == 302
     location = str(headers.get("Location") or "")
     assert location.startswith("/login")
-    assert "next=" in location
+    assert "next=%2Fapp" in location or "next=/app" in location
 
 
-def test_authenticated_login_route_redirects_to_root(api_server_auth: str) -> None:
+def test_authenticated_login_route_redirects_to_app(api_server_auth: str) -> None:
     req_code, req_data = _request_json(
         api_server_auth,
         "/api/auth/request-link",
@@ -1105,7 +1112,38 @@ def test_authenticated_login_route_redirects_to_root(api_server_auth: str) -> No
         status = exc.code
         headers = dict(exc.headers.items())
     assert status == 302
-    assert str(headers.get("Location") or "") == "/"
+    assert str(headers.get("Location") or "") == "/app"
+
+
+def test_authenticated_root_redirects_to_app(api_server_auth: str) -> None:
+    req_code, req_data = _request_json(
+        api_server_auth,
+        "/api/auth/request-link",
+        method="POST",
+        payload={"email": "root-redirect@example.com"},
+    )
+    assert req_code == 200
+    token = str(req_data.get("magic_link") or "").split("magic_token=", 1)[1].split("&", 1)[0]
+    verify_code, _, verify_headers = _request_json_with_headers(
+        api_server_auth,
+        "/api/auth/verify-link",
+        method="POST",
+        payload={"token": token},
+    )
+    assert verify_code == 200
+    cookie_pair = str(verify_headers.get("Set-Cookie") or "").split(";", 1)[0]
+
+    req = urllib.request.Request(f"{api_server_auth}/", method="GET", headers={"Cookie": cookie_pair})
+    opener = urllib.request.build_opener(_NoRedirect())
+    try:
+        with opener.open(req) as resp:
+            status = resp.status
+            headers = dict(resp.headers.items())
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        headers = dict(exc.headers.items())
+    assert status == 302
+    assert str(headers.get("Location") or "") == "/app"
 
 
 def test_unauthenticated_unknown_page_redirects_to_login(api_server_auth: str) -> None:
@@ -1124,7 +1162,7 @@ def test_unauthenticated_magic_link_root_redirects_with_magic_token(api_server_a
     assert "magic_token=test-token-123" in location
 
 
-def test_authenticated_unknown_page_redirects_to_root(api_server_auth: str) -> None:
+def test_authenticated_unknown_page_redirects_to_app(api_server_auth: str) -> None:
     req_code, req_data = _request_json(
         api_server_auth,
         "/api/auth/request-link",
@@ -1152,7 +1190,7 @@ def test_authenticated_unknown_page_redirects_to_root(api_server_auth: str) -> N
         status = exc.code
         headers = dict(exc.headers.items())
     assert status == 302
-    assert str(headers.get("Location") or "") == "/"
+    assert str(headers.get("Location") or "") == "/app"
 
 
 def test_magic_link_cannot_be_replayed(api_server_auth: str) -> None:

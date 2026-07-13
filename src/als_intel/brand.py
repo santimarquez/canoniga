@@ -6,8 +6,13 @@ from pathlib import Path
 LOGO_ALT = "MTVL AI"
 LOGO_FILENAME = "mtvl-ai-logo.svg"
 LOGO_URL_PATH = f"/assets/{LOGO_FILENAME}"
+LETTERMARK_LOGO_FILENAME = "mtvl-ai-logo-lettermark.png"
+LETTERMARK_LOGO_URL_PATH = f"/assets/{LETTERMARK_LOGO_FILENAME}"
+LANDING_DASHBOARD_FILENAME = "landing-dashboard-mockup.png"
+LANDING_DASHBOARD_URL_PATH = f"/assets/{LANDING_DASHBOARD_FILENAME}"
 LOGO_PRIMARY_COLOR = "#003c90"
 LOGO_ACCENT_COLOR = "#0f52ba"
+DEFAULT_GITHUB_URL = "https://github.com/santimarquez/canoniga"
 
 
 def assets_dir() -> Path:
@@ -35,6 +40,36 @@ def logo_bytes() -> bytes:
 
 def logo_mime_type() -> str:
     return "image/svg+xml"
+
+
+def lettermark_logo_path() -> Path:
+    return assets_dir() / LETTERMARK_LOGO_FILENAME
+
+
+def lettermark_logo_bytes() -> bytes:
+    path = lettermark_logo_path()
+    if not path.is_file():
+        raise FileNotFoundError(f"Lettermark logo not found: {path}")
+    return path.read_bytes()
+
+
+def lettermark_logo_mime_type() -> str:
+    return "image/png"
+
+
+def landing_dashboard_path() -> Path:
+    return assets_dir() / LANDING_DASHBOARD_FILENAME
+
+
+def landing_dashboard_bytes() -> bytes:
+    path = landing_dashboard_path()
+    if not path.is_file():
+        raise FileNotFoundError(f"Landing dashboard image not found: {path}")
+    return path.read_bytes()
+
+
+def landing_dashboard_mime_type() -> str:
+    return "image/png"
 
 
 def _size_svg(svg: str, *, height_px: int) -> str:

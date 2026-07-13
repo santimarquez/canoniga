@@ -263,7 +263,12 @@ def test_governance_doc_route_helper_serves_mission_md() -> None:
 
     body = render_governance_doc_page("MISSION.md")
     assert body is not None
-    assert b"MISSION" in body or b"mission" in body.lower()
+    text = body.decode("utf-8")
+    assert "MTVL AI / Canoniga Mission" in text
+    assert "<h2" in text
+    assert "Objective" in text
+    assert "<pre" not in text
+    assert 'href="/docs/ETHICS_AND_OVERSIGHT.md"' in text
 
 
 def test_login_template_includes_magic_link_confirmation_panel() -> None:

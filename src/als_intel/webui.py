@@ -20,8 +20,22 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from urllib.request import Request, urlopen
 
 from als_intel.auth import AuthService, build_auth_config
-from als_intel.brand import LOGO_URL_PATH, favicon_link_tag, logo_bytes, logo_mime_type, render_inline_logo
+from als_intel.brand import (
+    LANDING_DASHBOARD_URL_PATH,
+    LETTERMARK_LOGO_URL_PATH,
+    LOGO_URL_PATH,
+    favicon_link_tag,
+    landing_dashboard_bytes,
+    landing_dashboard_mime_type,
+    lettermark_logo_bytes,
+    lettermark_logo_mime_type,
+    logo_bytes,
+    logo_mime_type,
+    render_inline_logo,
+)
+from als_intel.landing import APP_ROUTE, render_landing_page
 from als_intel.llm import LocalLLMError, build_grounded_prompt, generate_with_ollama, generate_with_ollama_stream
+from als_intel.markdown_render import extract_markdown_title, render_markdown_to_html
 from als_intel.store import EvidenceStore
 
 
@@ -29,6 +43,9 @@ DEFAULT_DB_PATH = os.getenv("ALS_DB_PATH", "data/als_intel.sqlite")
 DEFAULT_OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 DEFAULT_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 DEFAULT_PORT = int(os.getenv("ALS_WEB_PORT", "8000"))
+
+PUBLIC_PAGE_PATHS = {"/", "/index.html", "/login", "/privacy", "/terms"}
+APP_PAGE_PATHS = {APP_ROUTE, f"{APP_ROUTE}/index.html"}
 DEFAULT_CONTEXT_LIMIT = int(os.getenv("ALS_CONTEXT_LIMIT", "20"))
 DEFAULT_TEMPERATURE = float(os.getenv("ALS_TEMPERATURE", "0.1"))
 DEFAULT_TIMEOUT_SECONDS = int(os.getenv("ALS_TIMEOUT_SECONDS", "120"))
@@ -179,6 +196,9 @@ PAGE_TEMPLATE = Template(
         display: grid;
         grid-template-columns: 250px minmax(0, 1fr) 350px;
         gap: 16px;
+      }
+      .layout > .panel {
+        min-height: 0;
       }
       .layout.filters-collapsed {
         grid-template-columns: 64px minmax(0, 1fr) 350px;
@@ -625,18 +645,149 @@ PAGE_TEMPLATE = Template(
       }
       .actions .spacer { flex: 1; }
       .evidence-wrap {
-        display: grid;
-        grid-template-rows: auto 1fr;
+        display: flex;
+        flex-direction: column;
         min-height: 0;
         overflow: hidden;
       }
+      .evidence-head {
+        flex-shrink: 0;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .panel-hint {
+        flex-shrink: 0;
+        padding: 12px 16px;
+        text-align: center;
+        font-size: 12px;
+        line-height: 1.5;
+        color: #64748b;
+        font-style: italic;
+        background: #f8fafc;
+        border-bottom: 1px solid var(--border);
+      }
       .evidence-list {
+        flex: 1;
+        min-height: 0;
         overflow: auto;
         padding: 12px;
         display: grid;
         gap: 10px;
         align-content: start;
         grid-auto-rows: min-content;
+      }
+      .evidence-panels {
+        flex-shrink: 0;
+        border-top: 1px solid var(--border);
+        background: #fff;
+      }
+      .panel-scroll {
+        max-height: 168px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding-right: 2px;
+      }
+      .db-status-chip {
+        position: relative;
+      }
+      .db-status-popover {
+        position: absolute;
+        top: calc(100% + 10px);
+        left: 0;
+        width: min(320px, 78vw);
+        padding: 14px;
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        box-shadow: 0 16px 36px -14px rgba(15, 23, 42, 0.35);
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(-6px);
+        transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+        z-index: 60;
+        pointer-events: none;
+        text-align: left;
+        font-weight: 400;
+      }
+      .db-status-popover::before {
+        content: '';
+        position: absolute;
+        top: -6px;
+        left: 18px;
+        width: 12px;
+        height: 12px;
+        background: #fff;
+        border-left: 1px solid var(--border);
+        border-top: 1px solid var(--border);
+        transform: rotate(45deg);
+      }
+      .db-status-chip:hover .db-status-popover,
+      .db-status-chip:focus-within .db-status-popover {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+      .db-popover-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .db-popover-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #334155;
+      }
+      .db-popover-total {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--primary-strong);
+        line-height: 1.1;
+      }
+      .db-popover-meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+      .db-popover-sources {
+        display: grid;
+        gap: 8px;
+      }
+      .db-popover-source-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 11px;
+        color: #475569;
+      }
+      .db-popover-bar {
+        width: 100%;
+        height: 5px;
+        background: #f1f5f9;
+        border-radius: 999px;
+        overflow: hidden;
+        margin-top: 3px;
+      }
+      .db-popover-bar > span {
+        display: block;
+        height: 100%;
+        border-radius: 999px;
+        background: var(--primary-strong);
+      }
+      .db-popover-foot {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid #f1f5f9;
+        font-size: 11px;
+        color: #64748b;
       }
       .ev {
         border: 1px solid var(--border);
@@ -1054,7 +1205,20 @@ PAGE_TEMPLATE = Template(
         <a href="/" class="brand" title="MTVL AI">$logo_html</a>
         <div class="metric-cluster">
           <div class="metric-chip"><span class="material-symbols-outlined" style="font-size:16px">model_training</span><span id="status-model">$model</span></div>
-          <div class="metric-chip"><span id="statusDbDot" class="dot"></span><span id="status-db" class="status-link" role="button" tabindex="0" title="Open database explorer">DB synced</span></div>
+          <div class="metric-chip db-status-chip">
+            <span id="statusDbDot" class="dot"></span>
+            <span id="status-db" class="status-link" role="button" tabindex="0" aria-describedby="statusDbPopover" title="Database status">DB synced</span>
+            <div id="statusDbPopover" class="db-status-popover" role="tooltip">
+              <div class="db-popover-head">
+                <span id="statusDbPopoverTitle" class="db-popover-title">Database status</span>
+                <span id="statusDbPopoverDot" class="dot"></span>
+              </div>
+              <div id="statusDbPopoverTotal" class="db-popover-total">-</div>
+              <div id="statusDbPopoverMeta" class="db-popover-meta">Checking sync status...</div>
+              <div id="statusDbPopoverSources" class="db-popover-sources"></div>
+              <div id="statusDbPopoverFoot" class="db-popover-foot">Loading database status...</div>
+            </div>
+          </div>
         </div>
       </div>
       <div class="statusrow">
@@ -1151,13 +1315,15 @@ PAGE_TEMPLATE = Template(
       </div>
 
       <aside class="panel evidence-wrap">
-        <div class="head" style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div class="evidence-head">
           <div>
             <span id="evidenceNodesLabel" style="display:flex;align-items:center;gap:8px"><span class="material-symbols-outlined" style="font-size:18px;color:var(--muted)">view_list</span>Evidence Nodes</span>
           </div>
           <span class="count-badge"><span id="evidenceCount">0</span> <span id="evidenceFoundSuffix">found</span></span>
         </div>
+        <div id="evidenceListHint" class="panel-hint hidden"></div>
         <div id="evidenceList" class="evidence-list"></div>
+        <div class="evidence-panels">
         <div class="compare">
           <div id="compareNodesLabel" class="label">Compare nodes</div>
           <div class="row">
@@ -1168,19 +1334,20 @@ PAGE_TEMPLATE = Template(
           <button id="runCompare" class="btn">Compare</button>
           <div id="compareResult" class="tiny muted"></div>
         </div>
-        <div class="compare" style="margin-top:12px">
+        <div class="compare" style="margin-top:0;border-top:1px solid var(--border)">
           <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px">
             <div id="diagnosticsTitle" class="label" style="margin:0">Diagnostics</div>
             <button id="refreshDiagnostics" class="btn tiny">Refresh</button>
           </div>
-          <div id="diagnosticsList" class="tiny muted">No diagnostics yet.</div>
+          <div id="diagnosticsList" class="panel-scroll tiny muted">No diagnostics yet.</div>
         </div>
-        <div class="compare" style="margin-top:12px">
+        <div class="compare" style="margin-top:0;border-top:1px solid var(--border)">
           <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:6px">
             <div id="failureAtlasTitle" class="label" style="margin:0">Failure Atlas</div>
             <button id="refreshFailureAtlas" class="btn tiny">Refresh</button>
           </div>
-          <div id="failureAtlasList" class="tiny muted">No failure atlas entries yet.</div>
+          <div id="failureAtlasList" class="panel-scroll tiny muted">No failure atlas entries yet.</div>
+        </div>
         </div>
       </aside>
     </main>
@@ -1404,6 +1571,7 @@ PAGE_TEMPLATE = Template(
         dbBrowserLimit: 12,
         dbBrowserTotal: 0,
         dbMetadataCache: {},
+        dbStatusSnapshot: null,
         reviewFlags: [],
         selectedReviewClaimId: '',
         hypothesisRows: [],
@@ -1511,6 +1679,16 @@ PAGE_TEMPLATE = Template(
           db_synced: 'DB synced',
           db_out_of_sync: 'DB out of sync',
           db_unavailable: 'DB unavailable',
+          db_popover_title: 'Database status',
+          db_popover_total_label: 'evidence nodes',
+          db_popover_last_sync: 'Last sync',
+          db_popover_ready: 'Database is online and query-ready.',
+          db_popover_waiting: 'Database online, waiting for first ingestion.',
+          db_popover_loading: 'Loading database status...',
+          db_popover_unavailable: 'Database status is unavailable.',
+          db_popover_hint: 'Click to open the database explorer.',
+          evidence_hint_idle: 'Cited evidence will appear here after you run a query.',
+          evidence_hint_empty: 'No evidence nodes were cited in this report.',
           report_title: 'Synthesis Report',
           generated_in: 'Generated in {seconds}s',
           direct_answer: 'Direct answer',
@@ -1704,6 +1882,16 @@ PAGE_TEMPLATE = Template(
           db_synced: 'BD sincronizada',
           db_out_of_sync: 'BD fuera de sincronizacion',
           db_unavailable: 'BD no disponible',
+          db_popover_title: 'Estado de la base de datos',
+          db_popover_total_label: 'nodos de evidencia',
+          db_popover_last_sync: 'Ultima sincronizacion',
+          db_popover_ready: 'Base de datos en linea y lista para consultas.',
+          db_popover_waiting: 'Base de datos en linea, pendiente de primera ingesta.',
+          db_popover_loading: 'Cargando estado de la base de datos...',
+          db_popover_unavailable: 'Estado de la base de datos no disponible.',
+          db_popover_hint: 'Haz clic para abrir el explorador de base de datos.',
+          evidence_hint_idle: 'Los nodos citados apareceran aqui cuando ejecutes una consulta.',
+          evidence_hint_empty: 'Este informe no cito nodos de evidencia.',
           report_title: 'Informe de sintesis',
           generated_in: 'Generado en {seconds}s',
           direct_answer: 'Respuesta directa',
@@ -2009,7 +2197,14 @@ PAGE_TEMPLATE = Template(
         }
         const dbStatus = byId('status-db');
         if (dbStatus) {
-          dbStatus.title = t('db_open_hint');
+          dbStatus.title = t('db_popover_hint');
+        }
+        const dbPopoverTitle = byId('statusDbPopoverTitle');
+        if (dbPopoverTitle) {
+          dbPopoverTitle.textContent = t('db_popover_title');
+        }
+        if (state.dbStatusSnapshot) {
+          renderDbStatusPopover(state.dbStatusSnapshot);
         }
         const reviewerInput = byId('reviewerInput');
         if (reviewerInput) {
@@ -2857,6 +3052,20 @@ PAGE_TEMPLATE = Template(
         };
       }
 
+      function renderEvidenceListHint(mode) {
+        const hint = byId('evidenceListHint');
+        if (!hint) {
+          return;
+        }
+        if (mode === 'hidden') {
+          hint.classList.add('hidden');
+          hint.textContent = '';
+          return;
+        }
+        hint.classList.remove('hidden');
+        hint.textContent = mode === 'empty' ? t('evidence_hint_empty') : t('evidence_hint_idle');
+      }
+
       function renderEvidenceRows(rows) {
         const orderedRows = Array.isArray(rows)
           ? rows.slice().sort((left, right) => Number(right.reliability_score || 0) - Number(left.reliability_score || 0))
@@ -2865,14 +3074,10 @@ PAGE_TEMPLATE = Template(
         const list = byId('evidenceList');
         list.innerHTML = '';
         if (!orderedRows.length) {
-          const empty = document.createElement('div');
-          empty.className = 'small muted';
-          empty.textContent = state.lastReport
-            ? 'No cited evidence nodes were identified in the current synthesis report.'
-            : 'Run a query to populate evidence nodes cited in the synthesis report.';
-          list.appendChild(empty);
+          renderEvidenceListHint(state.lastReport ? 'empty' : 'idle');
           return;
         }
+        renderEvidenceListHint('hidden');
 
         orderedRows.forEach((row, index) => {
           const card = document.createElement('div');
@@ -3323,13 +3528,99 @@ PAGE_TEMPLATE = Template(
           '</div>';
       }
 
+      function formatCompactCount(value) {
+        const count = Number(value || 0);
+        if (!Number.isFinite(count) || count < 0) {
+          return '0';
+        }
+        return count.toLocaleString();
+      }
+
+      function formatRelativeIso(isoText) {
+        if (!isoText) {
+          return 'n/a';
+        }
+        const parsed = new Date(String(isoText));
+        if (Number.isNaN(parsed.getTime())) {
+          return String(isoText);
+        }
+        const deltaMs = Date.now() - parsed.getTime();
+        const minutes = Math.round(deltaMs / 60000);
+        if (minutes < 1) {
+          return 'just now';
+        }
+        if (minutes < 60) {
+          return minutes + 'm ago';
+        }
+        const hours = Math.round(minutes / 60);
+        if (hours < 48) {
+          return hours + 'h ago';
+        }
+        const days = Math.round(hours / 24);
+        return days + 'd ago';
+      }
+
+      function renderDbPopoverSources(rows, total) {
+        const root = byId('statusDbPopoverSources');
+        if (!root) {
+          return;
+        }
+        const safeRows = Array.isArray(rows) ? rows : [];
+        if (!safeRows.length) {
+          root.innerHTML = '<div class="db-popover-foot" style="margin:0;padding:0;border:0">' + escapeHtml(t('db_popover_waiting')) + '</div>';
+          return;
+        }
+        const denom = total > 0 ? total : 1;
+        root.innerHTML = safeRows.slice(0, 5).map((row) => {
+          const source = escapeHtml(String(row && row.source ? row.source : 'unknown'));
+          const count = Number(row && row.articles ? row.articles : 0);
+          const safeCount = Number.isFinite(count) && count > 0 ? count : 0;
+          const width = Math.max(0, Math.min(100, (safeCount / denom) * 100));
+          return '<div>'
+            + '<div class="db-popover-source-row"><span>' + source + '</span><span>' + formatCompactCount(safeCount) + '</span></div>'
+            + '<div class="db-popover-bar"><span style="width:' + width.toFixed(1) + '%"></span></div>'
+            + '</div>';
+        }).join('');
+      }
+
+      function renderDbStatusPopover(data) {
+        const totalEl = byId('statusDbPopoverTotal');
+        const metaEl = byId('statusDbPopoverMeta');
+        const footEl = byId('statusDbPopoverFoot');
+        const dotEl = byId('statusDbPopoverDot');
+        const titleEl = byId('statusDbPopoverTitle');
+        if (!totalEl || !metaEl) {
+          return;
+        }
+        if (titleEl) {
+          titleEl.textContent = t('db_popover_title');
+        }
+        const total = Number(data && data.records_total ? data.records_total : 0);
+        const sourceRows = data && Array.isArray(data.source_breakdown) ? data.source_breakdown : [];
+        const syncText = formatRelativeIso(data && data.latest_sync_at ? data.latest_sync_at : '');
+        totalEl.textContent = formatCompactCount(total);
+        metaEl.textContent = t('db_popover_last_sync') + ': ' + syncText + ' · ' + formatCompactCount(total) + ' ' + t('db_popover_total_label');
+        renderDbPopoverSources(sourceRows, total);
+        if (footEl) {
+          footEl.textContent = total > 0 ? t('db_popover_ready') : t('db_popover_waiting');
+        }
+        if (dotEl) {
+          dotEl.style.background = total > 0 ? 'var(--ok)' : 'var(--warn)';
+        }
+      }
+
       async function fetchStatus() {
         const dbEl = byId('status-db');
         const dbDotEl = byId('statusDbDot');
+        const metaEl = byId('statusDbPopoverMeta');
+        if (metaEl) {
+          metaEl.textContent = t('db_popover_loading');
+        }
         try {
           const resp = await fetch('/api/status');
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.error || 'status failed');
+          state.dbStatusSnapshot = data;
           byId('status-model').textContent = String(data.model || state.model || 'unknown');
           if (Boolean(data.db_synced)) {
             dbEl.textContent = t('db_synced');
@@ -3340,10 +3631,18 @@ PAGE_TEMPLATE = Template(
             dbEl.classList.add('error');
             if (dbDotEl) dbDotEl.style.background = 'var(--warn)';
           }
+          renderDbStatusPopover(data);
         } catch (_) {
           dbEl.textContent = t('db_unavailable');
           dbEl.classList.add('error');
           if (dbDotEl) dbDotEl.style.background = 'var(--warn)';
+          if (metaEl) {
+            metaEl.textContent = t('db_popover_unavailable');
+          }
+          const footEl = byId('statusDbPopoverFoot');
+          if (footEl) {
+            footEl.textContent = t('db_popover_unavailable');
+          }
         }
       }
 
@@ -4489,7 +4788,8 @@ LOGIN_TEMPLATE = Template(
     <div class="flex-grow flex items-center justify-center p-4 relative z-10 flex-col">
       <main class="w-full max-w-[420px] bg-white evidence-card rounded-lg overflow-hidden flex shadow-sm">
         <div class="accent-bar"></div>
-        <div class="flex-1 p-6 flex flex-col gap-6">
+        <div class="flex-1 p-6 flex flex-col gap-6 relative">
+          <a href="/" class="absolute top-4 left-4 text-sm text-blue-900 hover:underline">← Back to home</a>
           <div class="flex flex-col items-center text-center gap-2">
             $logo_html
             <p class="text-xs font-semibold text-blue-900 uppercase tracking-widest">Open Source Intelligence</p>
@@ -4723,7 +5023,7 @@ LOGIN_TEMPLATE = Template(
 
       async function fetchAuthStatus() {
         if (!state.authEnabled) {
-          window.location.replace('/');
+          window.location.replace('/app');
           return;
         }
         try {
@@ -4731,7 +5031,9 @@ LOGIN_TEMPLATE = Template(
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.error || 'auth status failed');
           if (data.authenticated) {
-            window.location.replace('/');
+            const params = new URLSearchParams(window.location.search || '');
+            const next = String(params.get('next') || '/app').trim() || '/app';
+            window.location.replace(next.startsWith('/') ? next : '/app');
           }
         } catch (_) {}
       }
@@ -4817,7 +5119,9 @@ LOGIN_TEMPLATE = Template(
           });
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.error || 'Could not verify magic link');
-          window.location.replace('/');
+          const params = new URLSearchParams(window.location.search || '');
+          const next = String(params.get('next') || '/app').trim() || '/app';
+          window.location.replace(next.startsWith('/') ? next : '/app');
         } catch (error) {
           showLoginResultPanel({
             title: 'Sign-in link invalid',
@@ -4875,6 +5179,80 @@ LEGAL_TEMPLATE = Template(
         border: 1px solid #e2e8f0;
         box-shadow: 0 6px 18px -12px rgba(15, 23, 42, 0.24);
       }
+      .doc-content h2.doc-heading,
+      .doc-content h3.doc-heading,
+      .doc-content h4.doc-heading {
+        color: #0f172a;
+        font-weight: 600;
+        margin-top: 1.75rem;
+        margin-bottom: 0.75rem;
+      }
+      .doc-content h2.doc-heading { font-size: 1.25rem; }
+      .doc-content h3.doc-heading { font-size: 1.125rem; }
+      .doc-content h4.doc-heading { font-size: 1rem; }
+      .doc-content .doc-paragraph {
+        margin-bottom: 1rem;
+        line-height: 1.65;
+      }
+      .doc-content .doc-ul,
+      .doc-content .doc-ol {
+        margin: 0 0 1rem 1.25rem;
+        padding-left: 1rem;
+      }
+      .doc-content .doc-ul { list-style: disc; }
+      .doc-content .doc-ol { list-style: decimal; }
+      .doc-content li { margin-bottom: 0.35rem; }
+      .doc-content .doc-inline-code {
+        background: #f1f5f9;
+        border-radius: 0.25rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85em;
+        padding: 0.1rem 0.35rem;
+      }
+      .doc-content .doc-link {
+        color: #1e3a8a;
+        text-decoration: underline;
+      }
+      .doc-content .doc-link:hover { color: #1d4ed8; }
+      .doc-content .doc-table-wrap {
+        margin: 1rem 0 1.25rem;
+        overflow-x: auto;
+      }
+      .doc-content .doc-table {
+        border-collapse: collapse;
+        font-size: 0.875rem;
+        width: 100%;
+      }
+      .doc-content .doc-table th,
+      .doc-content .doc-table td {
+        border: 1px solid #e2e8f0;
+        padding: 0.55rem 0.75rem;
+        text-align: left;
+        vertical-align: top;
+      }
+      .doc-content .doc-table th {
+        background: #f8fafc;
+        color: #0f172a;
+        font-weight: 600;
+      }
+      .doc-nav {
+        border-bottom: 1px solid #e2e8f0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem 1rem;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+      }
+      .doc-nav a {
+        color: #475569;
+        font-size: 0.875rem;
+        text-decoration: none;
+      }
+      .doc-nav a:hover { color: #1e3a8a; text-decoration: underline; }
+      .doc-nav a.is-active {
+        color: #1e3a8a;
+        font-weight: 600;
+      }
     </style>
   </head>
   <body class="min-h-screen flex flex-col">
@@ -4882,9 +5260,9 @@ LEGAL_TEMPLATE = Template(
       <div class="legal-card bg-white rounded-xl p-6 md:p-8">
         <div class="flex items-center justify-between gap-3 mb-6">
           <h1 class="text-2xl font-semibold text-slate-900">$page_title</h1>
-          <a href="/" class="text-sm text-blue-900 hover:underline">Back to App</a>
+          <a href="/" class="text-sm text-blue-900 hover:underline">Back to home</a>
         </div>
-        <div class="prose prose-slate max-w-none text-sm leading-6 text-slate-700">
+        <div class="doc-content text-sm leading-6 text-slate-700">
           $page_body
         </div>
       </div>
@@ -6113,6 +6491,24 @@ def _repo_docs_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "docs"
 
 
+GOVERNANCE_DOC_NAMES = (
+    "MISSION.md",
+    "ETHICS_AND_OVERSIGHT.md",
+    "HUMAN_OVERSIGHT.md",
+)
+
+
+def _governance_doc_nav(current_name: str) -> str:
+    links: list[str] = []
+    for doc_name in GOVERNANCE_DOC_NAMES:
+        label = doc_name.replace(".md", "").replace("_", " ").title()
+        active_class = " is-active" if doc_name == current_name else ""
+        links.append(
+            f'<a href="/docs/{doc_name}" class="doc-nav-link{active_class}">{label}</a>'
+        )
+    return f'<nav class="doc-nav" aria-label="Governance documentation">{"".join(links)}</nav>'
+
+
 def render_governance_doc_page(doc_name: str) -> bytes | None:
     safe_name = Path(doc_name).name
     if not safe_name.endswith(".md"):
@@ -6121,17 +6517,13 @@ def render_governance_doc_page(doc_name: str) -> bytes | None:
     if not doc_path.is_file():
         return None
     markdown = doc_path.read_text(encoding="utf-8")
-    escaped = (
-        markdown.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    page_title = extract_markdown_title(markdown) or safe_name.replace(".md", "").replace("_", " ")
     body = (
-        f'<pre class="whitespace-pre-wrap text-sm text-slate-800" style="white-space:pre-wrap;font-family:ui-monospace,monospace">'
-        f"{escaped}</pre>"
+        _governance_doc_nav(safe_name)
+        + render_markdown_to_html(markdown, skip_top_heading=True)
     )
     html = LEGAL_TEMPLATE.substitute(
-        page_title=safe_name.replace(".md", "").replace("_", " "),
+        page_title=page_title,
         page_body=body,
         current_year=str(datetime.now(timezone.utc).year),
         favicon_tag=favicon_link_tag(),
@@ -6147,6 +6539,23 @@ def _write_brand_logo(handler: BaseHTTPRequestHandler) -> None:
     handler.send_header("Cache-Control", "public, max-age=86400")
     handler.end_headers()
     handler.wfile.write(data)
+
+
+def _write_static_asset(handler: BaseHTTPRequestHandler, *, data: bytes, mime_type: str) -> None:
+    handler.send_response(HTTPStatus.OK)
+    handler.send_header("Content-Type", mime_type)
+    handler.send_header("Content-Length", str(len(data)))
+    handler.send_header("Cache-Control", "public, max-age=86400")
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def _is_public_page(path: str) -> bool:
+    return path in PUBLIC_PAGE_PATHS or path.startswith("/docs/")
+
+
+def _is_app_page(path: str) -> bool:
+    return path in APP_PAGE_PATHS
 
 
 class ChatHandler(BaseHTTPRequestHandler):
@@ -6327,41 +6736,79 @@ class ChatHandler(BaseHTTPRequestHandler):
                 self.send_error(HTTPStatus.NOT_FOUND, "Logo not found")
             return
 
+        if path == LETTERMARK_LOGO_URL_PATH:
+            try:
+                _write_static_asset(
+                    self,
+                    data=lettermark_logo_bytes(),
+                    mime_type=lettermark_logo_mime_type(),
+                )
+            except FileNotFoundError:
+                self.send_error(HTTPStatus.NOT_FOUND, "Logo not found")
+            return
+
+        if path == LANDING_DASHBOARD_URL_PATH:
+            try:
+                _write_static_asset(
+                    self,
+                    data=landing_dashboard_bytes(),
+                    mime_type=landing_dashboard_mime_type(),
+                )
+            except FileNotFoundError:
+                self.send_error(HTTPStatus.NOT_FOUND, "Image not found")
+            return
+
         settings = self._settings()
         auth_user: dict[str, str] | None = None
         if bool(settings.get("auth_enabled", False)) and self._is_browser_page_request(path):
             auth_user = self._current_user(settings)
-            if auth_user is None and path not in {"/login", "/privacy", "/terms"}:
-                magic_token = str((query_params.get("magic_token") or [""])[0]).strip()
-                if magic_token:
+            magic_token = str((query_params.get("magic_token") or [""])[0]).strip()
+            if auth_user is None:
+                if magic_token and path in {"/", "/index.html"}:
                     location = f"/login?magic_token={quote(magic_token, safe='')}"
                     self.send_response(HTTPStatus.FOUND)
                     self.send_header("Location", location)
                     self.end_headers()
                     return
-                next_target = path
-                if parsed.query:
-                    next_target = f"{path}?{parsed.query}"
-                location = f"/login?next={quote(next_target, safe='/?:=&')}"
-                self.send_response(HTTPStatus.FOUND)
-                self.send_header("Location", location)
-                self.end_headers()
-                return
-            if auth_user is not None and path == "/login":
-                next_query = str((query_params.get("next") or ["/"])[0]).strip() or "/"
-                if not next_query.startswith("/"):
-                    next_query = "/"
-                self.send_response(HTTPStatus.FOUND)
-                self.send_header("Location", next_query)
-                self.end_headers()
-                return
-            if auth_user is not None and path not in {"/", "/index.html", "/login", "/privacy", "/terms"}:
-                self.send_response(HTTPStatus.FOUND)
-                self.send_header("Location", "/")
-                self.end_headers()
-                return
+                if not _is_public_page(path):
+                    next_target = path
+                    if parsed.query:
+                        next_target = f"{path}?{parsed.query}"
+                    location = f"/login?next={quote(next_target, safe='/?:=&')}"
+                    self.send_response(HTTPStatus.FOUND)
+                    self.send_header("Location", location)
+                    self.end_headers()
+                    return
+            if auth_user is not None:
+                if path == "/login":
+                    next_query = str((query_params.get("next") or [APP_ROUTE])[0]).strip() or APP_ROUTE
+                    if not next_query.startswith("/"):
+                        next_query = APP_ROUTE
+                    self.send_response(HTTPStatus.FOUND)
+                    self.send_header("Location", next_query)
+                    self.end_headers()
+                    return
+                if path in {"/", "/index.html"}:
+                    self.send_response(HTTPStatus.FOUND)
+                    self.send_header("Location", APP_ROUTE)
+                    self.end_headers()
+                    return
+                if not _is_public_page(path) and not _is_app_page(path):
+                    self.send_response(HTTPStatus.FOUND)
+                    self.send_header("Location", APP_ROUTE)
+                    self.end_headers()
+                    return
 
         if path in {"/", "/index.html"}:
+            body = render_landing_page(auth_enabled=bool(settings["auth_enabled"]))
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path in APP_PAGE_PATHS:
             body = render_index_page(
                 db_path=str(settings["db_path"]),
                 ollama_host=str(settings["ollama_host"]),
@@ -6381,7 +6828,7 @@ class ChatHandler(BaseHTTPRequestHandler):
         if path == "/login":
             if not bool(settings.get("auth_enabled", False)):
                 self.send_response(HTTPStatus.FOUND)
-                self.send_header("Location", "/")
+                self.send_header("Location", APP_ROUTE)
                 self.end_headers()
                 return
             body = render_login_page(auth_enabled=bool(settings["auth_enabled"]))
