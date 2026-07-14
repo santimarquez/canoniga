@@ -1,0 +1,13 @@
+{
+  "email.magic_link_subject": "Sign in to {product}",
+  "email.magic_link_preheader": "Your secure sign-in link expires in {minutes} minutes",
+  "email.magic_link_title": "Sign in to {product}",
+  "email.magic_link_intro": "We received a request to sign in as {email}.",
+  "email.magic_link_cta_intro": "Click the button below to open your secure sign-in link.",
+  "email.magic_link_button": "Open sign-in link",
+  "email.magic_link_expiry": "This link expires in {minutes} minutes. If you did not request this email, you can safely ignore it.",
+  "email.magic_link_plain_intro": "We received a request to sign in as {email}.",
+  "email.magic_link_plain_open": "Open this secure link to continue:",
+  "email.magic_link_plain_expiry": "This link expires in {minutes} minutes.",
+  "email.magic_link_plain_ignore": "If you did not request this email, you can safely ignore it."
+}

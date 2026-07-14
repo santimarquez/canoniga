@@ -213,7 +213,7 @@ class AuthService:
             return
         store.revoke_auth_session(token_hash=self.token_hash(session_token))
 
-    def send_magic_link(self, *, email: str, magic_link: str) -> dict[str, object]:
+    def send_magic_link(self, *, email: str, magic_link: str, locale: str = "en") -> dict[str, object]:
         if self.config.dev_mode:
             return {"sent": True, "mode": "dev", "magic_link": magic_link}
 
@@ -223,6 +223,7 @@ class AuthService:
             magic_link=magic_link,
             expires_minutes=self.config.magic_link_ttl_seconds // 60,
             recipient_email=email,
+            locale=locale,
         )
 
         msg = EmailMessage()

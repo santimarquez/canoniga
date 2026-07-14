@@ -11,7 +11,7 @@ services:
       OLLAMA_MODEL: llama3.1:8b
       ALS_CONTEXT_LIMIT: 20
       ALS_TEMPERATURE: 0.1
-      ALS_TIMEOUT_SECONDS: 120
+      ALS_TIMEOUT_SECONDS: 300
     volumes:
       - ./data:/app/data
     depends_on:

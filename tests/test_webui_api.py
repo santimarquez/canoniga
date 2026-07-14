@@ -13,6 +13,7 @@ import pytest
 from als_intel.models import EvidenceRecord
 from als_intel.store import EvidenceStore
 from als_intel import webui
+from als_intel.llm import LocalLLMError
 from als_intel.webui import ChatHandler
 from http.server import ThreadingHTTPServer
 
@@ -988,6 +989,53 @@ def test_chat_stream_final_event_includes_transparency_fields(api_server: str, m
     assert isinstance(final_event["guardrail_flags"], list)
     assert isinstance(final_event["evidence_rows"], list)
     assert "telemetry" in final_event
+
+
+def test_chat_stream_emits_error_event_when_llm_fails(api_server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise_timeout(**_: object):
+        raise LocalLLMError("timed out")
+
+    monkeypatch.setattr(webui, "generate_with_ollama_stream", _raise_timeout)
+
+    status, events = _request_ndjson(
+        api_server,
+        "/api/chat/stream",
+        {
+            "messages": [{"role": "user", "content": "Stream a concise answer."}],
+            "filters": {},
+            "context_limit": 5,
+            "temperature": 0.1,
+            "timeout_seconds": 10,
+        },
+    )
+
+    assert status == 200
+    error_event = next(event for event in events if event.get("type") == "error")
+    assert "timed out" in str(error_event.get("error", ""))
+    assert not any(event.get("type") == "final" for event in events)
+
+
+def test_chat_route_returns_llm_timeout_error(api_server: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise_timeout(**_: object):
+        raise LocalLLMError("timed out")
+
+    monkeypatch.setattr(webui, "generate_with_ollama", _raise_timeout)
+
+    code, data = _request_json(
+        api_server,
+        "/api/chat",
+        method="POST",
+        payload={
+            "messages": [{"role": "user", "content": "What is ALS?"}],
+            "filters": {},
+            "context_limit": 5,
+            "temperature": 0.1,
+            "timeout_seconds": 10,
+        },
+    )
+
+    assert code == 502
+    assert "timed out" in str(data.get("error", ""))
 
 
 def test_magic_link_auth_and_user_scoped_sessions(api_server_auth: str) -> None:

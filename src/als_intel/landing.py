@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from string import Template
 
@@ -9,17 +10,21 @@ from als_intel.brand import (
     LETTERMARK_LOGO_URL_PATH,
     favicon_link_tag,
 )
+from als_intel.i18n import common_strings, landing_strings
 
 APP_ROUTE = "/app"
 
 LANDING_TEMPLATE = Template(
     """
+
 <!DOCTYPE html>
-<html class="scroll-smooth" lang="en">
+<html class="scroll-smooth" lang="$html_lang">
 <head>
 <meta charset="utf-8"/>
+<link rel="alternate" hreflang="en" href="/?lang=en" />
+<link rel="alternate" hreflang="es" href="/?lang=es" />
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>MTVL AI | ALS Scientific Intelligence</title>
+<title>$t_page_title</title>
 $favicon_tag
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
@@ -137,14 +142,14 @@ $favicon_tag
 </a>
 </div>
 <div class="hidden md:flex items-center gap-8">
-<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#database">Database</a>
-<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#features">Features</a>
-<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#how-it-works">How it works</a>
-<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#governance">Governance</a>
-<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#open-source">Community</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#database">$t_nav_database</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#features">$t_nav_features</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#how-it-works">$t_nav_how_it_works</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#governance">$t_nav_governance</a>
+<a class="text-on-surface-variant hover:text-primary transition-colors font-body-sm text-body-sm" href="#open-source">$t_nav_community</a>
 </div>
-<div class="flex items-center gap-stack-md">
-<a class="hidden sm:block text-on-surface-variant hover:text-primary font-body-sm text-body-sm transition-colors" href="/docs/MISSION.md">Documentation</a>
+<div class="flex items-center gap-stack-md"><div class="hidden sm:flex items-center gap-1 text-on-surface-variant font-body-sm text-body-sm" aria-label="$t_lang_label"><a href="?lang=en" class="$lang_en_class">$t_lang_en</a><span>|</span><a href="?lang=es" class="$lang_es_class">$t_lang_es</a></div>
+<a class="hidden sm:block text-on-surface-variant hover:text-primary font-body-sm text-body-sm transition-colors" href="/docs/MISSION.md">$t_nav_documentation</a>
 <a class="bg-primary-container text-white px-5 py-2 rounded font-body-sm text-body-sm hover:opacity-90 transition-all active:scale-95 shadow-sm" href="$primary_cta_href">$primary_cta_label</a>
 </div>
 </nav>
@@ -153,13 +158,13 @@ $favicon_tag
 <section class="max-w-container-max mx-auto px-margin-desktop py-stack-lg lg:py-24 grid grid-cols-1 lg:grid-cols-2 gap-gutter items-center">
 <div class="space-y-stack-md">
 <div class="inline-flex items-center px-3 py-1 bg-primary/5 text-primary-container border border-primary/10 rounded-full font-code-label text-code-label">
-                    LOCAL-FIRST · OPEN SOURCE · EVIDENCE-GROUNDED
+                    $t_hero_badge
                 </div>
 <h1 class="font-display-lg text-display-lg text-primary tracking-tight leading-tight">
-                    Reduce ALS research uncertainty with traceable, cited intelligence
+                    $t_hero_title
                 </h1>
 <p class="text-on-surface-variant font-body-base text-body-base max-w-xl">
-                    MTVL AI connects 15 public biomedical sources into a single investigator workspace. Ask questions, compare contradictions, and promote hypotheses—with every claim tied back to source evidence.
+                    $t_hero_body
                 </p>
 <div class="flex flex-wrap gap-stack-md pt-stack-sm">
 <a class="bg-primary-container text-white px-8 py-3 rounded-lg font-title-md text-title-md flex items-center gap-2 hover:bg-primary transition-all" href="$primary_cta_href">
@@ -167,18 +172,18 @@ $favicon_tag
                         <span class="material-symbols-outlined">arrow_forward</span>
 </a>
 <a class="border border-outline-variant text-primary px-8 py-3 rounded-lg font-title-md text-title-md hover:bg-surface-container-low transition-all" href="$github_url" target="_blank" rel="noopener noreferrer">
-                        View on GitHub
+                        $t_hero_github
                     </a>
 </div>
 <div class="flex items-center gap-2 text-outline font-body-sm text-body-sm pt-4">
 <span class="material-symbols-outlined text-[18px]">verified_user</span>
-                    Magic-link sign-in · Local SQLite storage · Human review gates
+                    $t_hero_trust
                 </div>
 </div>
 <div class="relative group">
 <div class="absolute -inset-4 bg-gradient-to-tr from-primary/5 to-secondary/10 blur-3xl opacity-50 rounded-full"></div>
 <div class="relative rounded-xl border border-outline-variant overflow-hidden shadow-2xl">
-<img alt="MTVL AI Dashboard Mockup" class="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-700" src="$dashboard_image_url"/>
+<img alt="$t_hero_mockup_alt" class="w-full h-auto object-cover group-hover:scale-105 transition-transform duration-700" src="$dashboard_image_url"/>
 </div>
 </div>
 </section>
@@ -186,32 +191,32 @@ $favicon_tag
 <div class="max-w-container-max mx-auto px-margin-desktop grid grid-cols-2 lg:grid-cols-4 gap-gutter text-center">
 <div class="space-y-1">
 <div class="font-display-lg text-headline-lg text-primary">15</div>
-<div class="text-on-surface-variant font-body-sm text-body-sm uppercase tracking-wider">Public data sources</div>
+<div class="text-on-surface-variant font-body-sm text-body-sm uppercase tracking-wider">$t_stats_sources</div>
 </div>
 <div class="space-y-1">
 <div class="font-display-lg text-headline-lg text-primary">30k+</div>
-<div class="text-on-surface-variant font-body-sm text-body-sm uppercase tracking-wider">Evidence records</div>
+<div class="text-on-surface-variant font-body-sm text-body-sm uppercase tracking-wider">$t_stats_records</div>
 </div>
 <div class="space-y-1">
 <div class="font-display-lg text-headline-lg text-primary">55</div>
-<div class="text-on-surface-variant font-body-sm text-body-sm uppercase tracking-wider">Fidelity gold cases</div>
+<div class="text-on-surface-variant font-body-sm text-body-sm uppercase tracking-wider">$t_stats_fidelity</div>
 </div>
 <div class="space-y-1">
 <div class="font-display-lg text-headline-lg text-primary">100%</div>
-<div class="text-on-surface-variant font-body-sm text-body-sm uppercase tracking-wider">CI-gated quality</div>
+<div class="text-on-surface-variant font-body-sm text-body-sm uppercase tracking-wider">$t_stats_quality</div>
 </div>
 </div>
-<p class="text-center text-on-surface-variant font-body-sm text-body-sm mt-6 px-margin-desktop">Self-hosted deployment counts vary.</p>
+<p class="text-center text-on-surface-variant font-body-sm text-body-sm mt-6 px-margin-desktop">$t_stats_disclaimer</p>
 </section>
 <section class="max-w-container-max mx-auto px-margin-desktop py-24" id="database">
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-gutter items-center">
 <div class="space-y-stack-md">
 <div class="inline-flex items-center px-3 py-1 bg-primary/5 text-primary-container border border-primary/10 rounded-full font-code-label text-code-label">
-                    LIVE LOCAL EVIDENCE STORE
+                    $t_database_badge
                 </div>
-<h2 class="font-headline-lg text-headline-lg text-primary">Your database, ready to investigate</h2>
+<h2 class="font-headline-lg text-headline-lg text-primary">$t_database_title</h2>
 <p class="text-on-surface-variant font-body-base text-body-base max-w-xl">
-                    MTVL AI keeps a local SQLite evidence store synced from public biomedical APIs. Inspect source coverage, freshness, and volume before you sign in—then query with grounded citations in the investigator workspace.
+                    $t_database_body
                 </p>
 <a class="inline-flex items-center gap-2 bg-primary-container text-white px-8 py-3 rounded-lg font-title-md text-title-md hover:bg-primary transition-all shadow-md active:scale-95" href="$primary_cta_href">
                     $database_cta_label
@@ -220,108 +225,108 @@ $favicon_tag
 </div>
 <div id="landingDbWidget" class="landing-db-widget rounded-xl p-stack-lg loading">
 <div class="flex justify-between items-center mb-4">
-<h3 class="font-title-md text-title-md text-primary">Database status</h3>
+<h3 class="font-title-md text-title-md text-primary">$t_database_status_title</h3>
 <div class="flex items-center gap-2">
 <span id="landingDbDot" class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-<span id="landingDbUpdated" class="text-on-surface-variant font-body-sm text-body-sm">Checking...</span>
+<span id="landingDbUpdated" class="text-on-surface-variant font-body-sm text-body-sm">$t_database_checking</span>
 </div>
 </div>
 <div class="flex items-baseline gap-2 mb-4">
 <span id="landingDbTotal" class="font-display-lg text-headline-lg text-primary">-</span>
-<span class="text-on-surface-variant font-body-sm text-body-sm">evidence nodes</span>
+<span class="text-on-surface-variant font-body-sm text-body-sm">$t_database_nodes_label</span>
 </div>
 <div id="landingDbSources" class="space-y-3 mb-4">
 <div class="landing-db-skeleton h-2.5 w-full"></div>
 <div class="landing-db-skeleton h-2.5 w-[86%]"></div>
 <div class="landing-db-skeleton h-2.5 w-[73%]"></div>
 </div>
-<p id="landingDbState" class="text-on-surface-variant font-body-sm text-body-sm border-t border-outline-variant/30 pt-4">Loading database state...</p>
+<p id="landingDbState" class="text-on-surface-variant font-body-sm text-body-sm border-t border-outline-variant/30 pt-4">$t_database_loading_state</p>
 </div>
 </div>
 </section>
 <section class="max-w-container-max mx-auto px-margin-desktop py-24">
-<h2 class="font-headline-lg text-headline-lg text-center mb-16 text-primary">Engineered for scientific rigor</h2>
+<h2 class="font-headline-lg text-headline-lg text-center mb-16 text-primary">$t_rigor_title</h2>
 <div class="grid grid-cols-1 md:grid-cols-3 gap-gutter">
 <div class="bento-card p-stack-lg bg-white border border-outline-variant rounded-xl border-l-4 border-l-secondary">
 <div class="w-12 h-12 bg-primary/5 rounded-lg flex items-center justify-center text-primary mb-6">
 <span class="material-symbols-outlined text-3xl">description</span>
 </div>
-<h3 class="font-title-md text-title-md mb-3 text-primary">Evidence you can audit</h3>
-<p class="text-on-surface-variant font-body-sm text-body-sm leading-relaxed">Every synthesis cites claim IDs and source metadata. Reliability scores and extraction provenance stay inspectable—not buried in model weights.</p>
+<h3 class="font-title-md text-title-md mb-3 text-primary">$t_rigor_audit_title</h3>
+<p class="text-on-surface-variant font-body-sm text-body-sm leading-relaxed">$t_rigor_audit_body</p>
 </div>
 <div class="bento-card p-stack-lg bg-white border border-outline-variant rounded-xl border-l-4 border-l-secondary">
 <div class="w-12 h-12 bg-primary/5 rounded-lg flex items-center justify-center text-primary mb-6">
 <span class="material-symbols-outlined text-3xl">compare</span>
 </div>
-<h3 class="font-title-md text-title-md mb-3 text-primary">Contradictions stay visible</h3>
-<p class="text-on-surface-variant font-body-sm text-body-sm leading-relaxed">Supporting and contradicting studies surface together. Failure atlases and debate protocols help you see why trials fail—not just what succeeded in abstracts.</p>
+<h3 class="font-title-md text-title-md mb-3 text-primary">$t_rigor_contradictions_title</h3>
+<p class="text-on-surface-variant font-body-sm text-body-sm leading-relaxed">$t_rigor_contradictions_body</p>
 </div>
 <div class="bento-card p-stack-lg bg-white border border-outline-variant rounded-xl border-l-4 border-l-secondary">
 <div class="w-12 h-12 bg-primary/5 rounded-lg flex items-center justify-center text-primary mb-6">
 <span class="material-symbols-outlined text-3xl">storage</span>
 </div>
-<h3 class="font-title-md text-title-md mb-3 text-primary">Local-first control</h3>
-<p class="text-on-surface-variant font-body-sm text-body-sm leading-relaxed">Run on your infrastructure with SQLite, optional Docker, and your own Ollama models. No mandatory cloud exfiltration for core workflows.</p>
+<h3 class="font-title-md text-title-md mb-3 text-primary">$t_rigor_local_title</h3>
+<p class="text-on-surface-variant font-body-sm text-body-sm leading-relaxed">$t_rigor_local_body</p>
 </div>
 </div>
 </section>
 <section class="bg-surface-container-lowest py-24" id="features">
 <div class="max-w-container-max mx-auto px-margin-desktop">
 <div class="max-w-2xl mb-16">
-<h2 class="font-headline-lg text-headline-lg text-primary mb-4">A complete ecosystem for neurodegenerative data</h2>
-<p class="text-on-surface-variant">Sophisticated tools built specifically for the high-dimensional challenges of ALS research.</p>
+<h2 class="font-headline-lg text-headline-lg text-primary mb-4">$t_features_title</h2>
+<p class="text-on-surface-variant">$t_features_subtitle</p>
 </div>
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
 <div class="p-8 border border-outline-variant hover:border-primary/30 transition-colors group">
-<h4 class="font-title-md text-title-md text-primary mb-2">Incremental sync</h4>
-<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">Pull ALS-related records from PubMed, ClinicalTrials.gov, PMC, ChEMBL, GEO, and 10 more public sources on a schedule.</p>
+<h4 class="font-title-md text-title-md text-primary mb-2">$t_features_sync_title</h4>
+<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">$t_features_sync_body</p>
 </div>
 <div class="p-8 border border-outline-variant hover:border-primary/30 transition-colors group">
-<h4 class="font-title-md text-title-md text-primary mb-2">Structured extraction</h4>
-<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">Normalize entities, relations, outcomes, and effect directions across all 15 public sources with inspectable provenance.</p>
+<h4 class="font-title-md text-title-md text-primary mb-2">$t_features_extract_title</h4>
+<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">$t_features_extract_body</p>
 </div>
 <div class="p-8 border border-outline-variant hover:border-primary/30 transition-colors group">
-<h4 class="font-title-md text-title-md text-primary mb-2">Grounded chat</h4>
-<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">Ask investigation questions; answers cite in-database evidence via a local LLM (Ollama) with guardrails.</p>
+<h4 class="font-title-md text-title-md text-primary mb-2">$t_features_chat_title</h4>
+<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">$t_features_chat_body</p>
 </div>
 <div class="p-8 border border-outline-variant hover:border-primary/30 transition-colors group">
-<h4 class="font-title-md text-title-md text-primary mb-2">Hypothesis queue</h4>
-<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">Rank testable directions with supporting and contradictory evidence cards and reviewer sign-off gates.</p>
+<h4 class="font-title-md text-title-md text-primary mb-2">$t_features_hypothesis_title</h4>
+<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">$t_features_hypothesis_body</p>
 </div>
 <div class="p-8 border border-outline-variant hover:border-primary/30 transition-colors group">
-<h4 class="font-title-md text-title-md text-primary mb-2">Failure atlas</h4>
-<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">Map terminated trials and negative endpoints to root-cause patterns for investigator review.</p>
+<h4 class="font-title-md text-title-md text-primary mb-2">$t_features_atlas_title</h4>
+<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">$t_features_atlas_body</p>
 </div>
 <div class="p-8 border border-outline-variant hover:border-primary/30 transition-colors group">
-<h4 class="font-title-md text-title-md text-primary mb-2">Automation &amp; gates</h4>
-<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">Nightly ops, benchmark gates, and extraction fidelity checks before hypotheses are promoted.</p>
+<h4 class="font-title-md text-title-md text-primary mb-2">$t_features_automation_title</h4>
+<p class="text-on-surface-variant font-body-sm text-body-sm mb-6">$t_features_automation_body</p>
 </div>
 </div>
 </div>
 </section>
 <section class="py-24 max-w-container-max mx-auto px-margin-desktop" id="how-it-works">
-<h2 class="font-headline-lg text-headline-lg text-center mb-16 text-primary">The Investigation Pipeline</h2>
+<h2 class="font-headline-lg text-headline-lg text-center mb-16 text-primary">$t_pipeline_title</h2>
 <div class="relative grid grid-cols-1 md:grid-cols-4 gap-gutter">
 <div class="hidden md:block absolute top-12 left-0 w-full h-[2px] bg-outline-variant/30 z-0"></div>
 <div class="relative z-10 flex flex-col items-center text-center">
 <div class="w-16 h-16 rounded-full bg-white border-2 border-primary flex items-center justify-center font-bold text-primary mb-6 shadow-md">1</div>
-<h5 class="font-title-md text-title-md text-primary mb-2">Ingest</h5>
-<p class="text-on-surface-variant font-body-sm text-body-sm">Scheduled sync from public biomedical APIs into your local evidence store.</p>
+<h5 class="font-title-md text-title-md text-primary mb-2">$t_pipeline_ingest</h5>
+<p class="text-on-surface-variant font-body-sm text-body-sm">$t_pipeline_ingest_body</p>
 </div>
 <div class="relative z-10 flex flex-col items-center text-center">
 <div class="w-16 h-16 rounded-full bg-white border-2 border-primary flex items-center justify-center font-bold text-primary mb-6 shadow-md">2</div>
-<h5 class="font-title-md text-title-md text-primary mb-2">Structure</h5>
-<p class="text-on-surface-variant font-body-sm text-body-sm">Extract entities, relations, outcomes, and trial provenance from raw documents.</p>
+<h5 class="font-title-md text-title-md text-primary mb-2">$t_pipeline_structure</h5>
+<p class="text-on-surface-variant font-body-sm text-body-sm">$t_pipeline_structure_body</p>
 </div>
 <div class="relative z-10 flex flex-col items-center text-center">
 <div class="w-16 h-16 rounded-full bg-white border-2 border-primary flex items-center justify-center font-bold text-primary mb-6 shadow-md">3</div>
-<h5 class="font-title-md text-title-md text-primary mb-2">Investigate</h5>
-<p class="text-on-surface-variant font-body-sm text-body-sm">Query, compare nodes, and generate synthesis reports with citations.</p>
+<h5 class="font-title-md text-title-md text-primary mb-2">$t_pipeline_investigate</h5>
+<p class="text-on-surface-variant font-body-sm text-body-sm">$t_pipeline_investigate_body</p>
 </div>
 <div class="relative z-10 flex flex-col items-center text-center">
 <div class="w-16 h-16 rounded-full bg-white border-2 border-primary flex items-center justify-center font-bold text-primary mb-6 shadow-md">4</div>
-<h5 class="font-title-md text-title-md text-primary mb-2">Validate</h5>
-<p class="text-on-surface-variant font-body-sm text-body-sm">Human reviewers approve, reject, or withhold promotion through explicit gates.</p>
+<h5 class="font-title-md text-title-md text-primary mb-2">$t_pipeline_validate</h5>
+<p class="text-on-surface-variant font-body-sm text-body-sm">$t_pipeline_validate_body</p>
 </div>
 </div>
 <div class="mt-16 text-center">
@@ -337,14 +342,14 @@ $favicon_tag
 <div class="p-stack-lg flex-1">
 <h3 class="font-title-md text-title-md text-primary mb-4 flex items-center gap-2">
 <span class="material-symbols-outlined text-secondary">gavel</span>
-                        Research Governance &amp; Ethics
+                        $t_governance_title
                     </h3>
 <div class="grid grid-cols-1 md:grid-cols-2 gap-gutter">
 <p class="text-on-surface-variant font-body-sm text-body-sm leading-relaxed">
-                            Canoniga is designed for scientific discovery support—not clinical decision-making. Outputs may be incomplete or affected by publication bias; all conclusions require experimental validation and qualified human oversight.
+                            $t_governance_body1
                         </p>
 <p class="text-on-surface-variant font-body-sm text-body-sm leading-relaxed">
-                            The platform preserves contradictory findings, flags high-risk causal claims, and requires human sign-off for high-impact promotion paths. Governance docs are available offline at <a href="/docs/MISSION.md" class="text-primary hover:underline">/docs</a>.
+                            $t_governance_body2 <a href="/docs/MISSION.md" class="text-primary hover:underline">/docs</a>.
                         </p>
 </div>
 </div>
@@ -353,9 +358,9 @@ $favicon_tag
 <section class="py-24 bg-primary text-white overflow-hidden" id="open-source">
 <div class="max-w-container-max mx-auto px-margin-desktop grid grid-cols-1 lg:grid-cols-2 gap-24 items-center">
 <div>
-<h2 class="font-display-lg text-headline-lg mb-6">Deploy on your terms</h2>
+<h2 class="font-display-lg text-headline-lg mb-6">$t_opensource_title</h2>
 <p class="text-primary-fixed font-body-base text-body-base mb-8">
-                        Docker-ready stack with Mailpit for dev auth, production SMTP checklist, and documented nightly-ops runbook. Fork, audit, and extend the pipeline.
+                        $t_opensource_body
                     </p>
 <div class="space-y-4">
 <div class="flex items-center gap-4">
@@ -377,7 +382,7 @@ $favicon_tag
 <span class="font-code-label text-code-label">make test-extraction-fidelity</span>
 </div>
 </div>
-<a class="inline-block mt-8 border border-white/40 text-white px-8 py-3 rounded-lg font-title-md hover:bg-white/10 transition-all" href="$github_url" target="_blank" rel="noopener noreferrer">Explore the repository</a>
+<a class="inline-block mt-8 border border-white/40 text-white px-8 py-3 rounded-lg font-title-md hover:bg-white/10 transition-all" href="$github_url" target="_blank" rel="noopener noreferrer">$t_opensource_explore</a>
 </div>
 <div class="relative">
 <div class="bg-surface-container-highest/10 backdrop-blur-md rounded-xl border border-white/20 p-6 font-code-label text-code-label text-primary-fixed shadow-2xl">
@@ -387,10 +392,10 @@ $favicon_tag
 <div class="w-3 h-3 rounded-full bg-on-primary-container"></div>
 </div>
 <div class="space-y-1 opacity-80">
-<p><span class="text-on-tertiary-container"># Nightly operations</span></p>
+<p><span class="text-on-tertiary-container">$t_opensource_comment_nightly</span></p>
 <p>export ALS_AUTOMATION_WORKER_TOKEN="..."</p>
 <p>make nightly-ops</p>
-<p class="mt-4"><span class="text-secondary-container"># Extraction fidelity gate</span></p>
+<p class="mt-4"><span class="text-secondary-container">$t_opensource_comment_fidelity</span></p>
 <p>make test-extraction-fidelity</p>
 </div>
 </div>
@@ -405,44 +410,46 @@ $favicon_tag
 <span class="font-title-md text-title-md font-bold text-primary tracking-tight">MTVL AI</span>
 </div>
 <p class="text-on-surface-variant font-body-sm text-body-sm leading-relaxed pr-8">
-                    © $current_year MTVL AI. Open-source ALS intelligence. Not medical advice. Not for patient diagnosis or treatment decisions. Research assistance only.
+                    © $current_year MTVL AI. $t_footer_body
                 </p>
 </div>
 <div class="grid grid-cols-2 gap-gutter">
 <div class="space-y-3">
-<h6 class="font-title-md text-[14px] uppercase tracking-widest text-primary">Resources</h6>
+<h6 class="font-title-md text-[14px] uppercase tracking-widest text-primary">$t_footer_resources</h6>
 <ul class="space-y-2">
-<li><a class="text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-all" href="/docs/MISSION.md">Documentation</a></li>
+<li><a class="text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-all" href="/docs/MISSION.md">$t_nav_documentation</a></li>
 <li><a class="text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-all" href="$github_url" target="_blank" rel="noopener noreferrer">GitHub</a></li>
-<li><a class="text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-all" href="/docs/ETHICS_AND_OVERSIGHT.md">Research Ethics</a></li>
+<li><a class="text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-all" href="/docs/ETHICS_AND_OVERSIGHT.md">$t_footer_research_ethics</a></li>
 </ul>
 </div>
 <div class="space-y-3">
-<h6 class="font-title-md text-[14px] uppercase tracking-widest text-primary">Legal</h6>
+<h6 class="font-title-md text-[14px] uppercase tracking-widest text-primary">$t_footer_legal</h6>
 <ul class="space-y-2">
-<li><a class="text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-all" href="/privacy">Privacy Policy</a></li>
-<li><a class="text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-all" href="/terms">Terms of Service</a></li>
+<li><a class="text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-all" href="/privacy">$t_footer_privacy</a></li>
+<li><a class="text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-all" href="/terms">$t_footer_terms</a></li>
 </ul>
 </div>
 </div>
 </div>
 </footer>
 <script>
+
+        const LANDING_I18N = $landing_i18n_json;
         function landingFormatCount(value) {
             const count = Number(value || 0);
             if (!Number.isFinite(count) || count < 0) return '0';
             return count.toLocaleString();
         }
         function landingFormatRelative(isoText) {
-            if (!isoText) return 'n/a';
+            if (!isoText) return LANDING_I18N.time_na;
             const parsed = new Date(String(isoText));
             if (Number.isNaN(parsed.getTime())) return String(isoText);
             const minutes = Math.round((Date.now() - parsed.getTime()) / 60000);
-            if (minutes < 1) return 'just now';
-            if (minutes < 60) return minutes + 'm ago';
+            if (minutes < 1) return LANDING_I18N.time_just_now;
+            if (minutes < 60) return LANDING_I18N.time_minutes_ago.replace('{n}', String(minutes));
             const hours = Math.round(minutes / 60);
-            if (hours < 48) return hours + 'h ago';
-            return Math.round(hours / 24) + 'd ago';
+            if (hours < 48) return LANDING_I18N.time_hours_ago.replace('{n}', String(hours));
+            return LANDING_I18N.time_days_ago.replace('{n}', String(Math.round(hours / 24)));
         }
         function landingRenderSources(rows, total) {
             const root = document.getElementById('landingDbSources');
@@ -455,7 +462,7 @@ $favicon_tag
             const denom = total > 0 ? total : 1;
             const shades = ['bg-primary-container', 'bg-secondary', 'bg-primary', 'bg-blue-700', 'bg-slate-500'];
             root.innerHTML = safeRows.slice(0, 5).map((row, index) => {
-                const source = String(row && row.source ? row.source : 'unknown');
+                const source = String(row && row.source ? row.source : LANDING_I18N.unknown_source);
                 const count = Number(row && row.articles ? row.articles : 0);
                 const safeCount = Number.isFinite(count) && count > 0 ? count : 0;
                 const width = Math.max(0, Math.min(100, (safeCount / denom) * 100));
@@ -481,7 +488,7 @@ $favicon_tag
                 const syncText = landingFormatRelative(data.latest_sync_at);
                 if (widget) widget.classList.remove('loading');
                 if (totalEl) totalEl.textContent = landingFormatCount(total);
-                if (updatedEl) updatedEl.textContent = 'Last sync: ' + syncText;
+                if (updatedEl) updatedEl.textContent = LANDING_I18N.last_sync.replace('{time}', syncText);
                 landingRenderSources(data.source_breakdown, total);
                 if (dotEl) {
                     dotEl.classList.remove('bg-emerald-500', 'bg-amber-500');
@@ -489,12 +496,12 @@ $favicon_tag
                 }
                 if (stateEl) {
                     stateEl.textContent = total > 0
-                        ? 'Database is online and query-ready on this instance.'
-                        : 'Database is online and waiting for the first ingestion run.';
+                        ? '$t_nav_database is online and query-ready on this instance.'
+                        : '$t_nav_database is online and waiting for the first ingestion run.';
                 }
             } catch (error) {
                 if (widget) widget.classList.remove('loading');
-                if (updatedEl) updatedEl.textContent = 'Unavailable';
+                if (updatedEl) updatedEl.textContent = LANDING_I18N.unavailable;
                 if (stateEl) stateEl.textContent = String(error);
             }
         }
@@ -510,8 +517,78 @@ $favicon_tag
     </script>
 </body>
 </html>
+
 """
 )
+
+
+def _landing_template_vars(
+    *,
+    locale: str,
+    auth_enabled: bool,
+    authenticated: bool,
+    github_url: str,
+) -> dict[str, str]:
+    strings = landing_strings(locale)
+    common = common_strings(locale)
+
+    def _t(key: str) -> str:
+        return strings.get(key, key)
+
+    if not auth_enabled or authenticated:
+        primary_cta_href = APP_ROUTE
+        primary_cta_label = _t("cta.open_investigator")
+        hero_cta_label = _t("cta.continue_investigating")
+        pipeline_cta_label = _t("cta.open_investigator")
+        database_cta_label = _t("cta.continue_database")
+    else:
+        primary_cta_href = "/login"
+        primary_cta_label = _t("cta.get_started")
+        hero_cta_label = _t("cta.sign_in_investigate")
+        pipeline_cta_label = _t("cta.start_investigating")
+        database_cta_label = _t("cta.sign_in_database")
+
+    safe_locale = locale if locale in {"en", "es"} else "en"
+    lang_en_class = "text-primary font-semibold" if safe_locale == "en" else "hover:text-primary"
+    lang_es_class = "text-primary font-semibold" if safe_locale == "es" else "hover:text-primary"
+
+    landing_i18n = {
+        "time_na": common.get("time_na", "n/a"),
+        "time_just_now": common.get("time_just_now", "just now"),
+        "time_minutes_ago": common.get("time_minutes_ago", "{n}m ago"),
+        "time_hours_ago": common.get("time_hours_ago", "{n}h ago"),
+        "time_days_ago": common.get("time_days_ago", "{n}d ago"),
+        "last_sync": common.get("time_last_sync", "Last sync: {time}"),
+        "no_sources": strings.get("database.no_sources", ""),
+        "unknown_source": strings.get("database.unknown_source", "unknown"),
+        "ready": strings.get("database.ready", ""),
+        "waiting": strings.get("database.waiting", ""),
+        "unavailable": strings.get("database.unavailable", "Unavailable"),
+    }
+
+    vars_out: dict[str, str] = {
+        "html_lang": safe_locale,
+        "favicon_tag": favicon_link_tag(),
+        "logo_url": LETTERMARK_LOGO_URL_PATH,
+        "dashboard_image_url": LANDING_DASHBOARD_URL_PATH,
+        "current_year": str(datetime.now(timezone.utc).year),
+        "github_url": github_url,
+        "app_url": APP_ROUTE,
+        "primary_cta_href": primary_cta_href,
+        "primary_cta_label": primary_cta_label,
+        "hero_cta_label": hero_cta_label,
+        "pipeline_cta_label": pipeline_cta_label,
+        "database_cta_label": database_cta_label,
+        "lang_en_class": lang_en_class,
+        "lang_es_class": lang_es_class,
+        "t_lang_label": common.get("lang.label", "Language"),
+        "t_lang_en": common.get("lang.en", "EN"),
+        "t_lang_es": common.get("lang.es", "ES"),
+        "landing_i18n_json": json.dumps(landing_i18n, ensure_ascii=True),
+    }
+    for key, value in strings.items():
+        vars_out["t_" + key.replace(".", "_")] = value
+    return vars_out
 
 
 def render_landing_page(
@@ -519,31 +596,14 @@ def render_landing_page(
     auth_enabled: bool,
     authenticated: bool = False,
     github_url: str = DEFAULT_GITHUB_URL,
+    locale: str = "en",
 ) -> bytes:
-    if not auth_enabled or authenticated:
-        primary_cta_href = APP_ROUTE
-        primary_cta_label = "Open investigator"
-        hero_cta_label = "Continue investigating"
-        pipeline_cta_label = "Open investigator"
-        database_cta_label = "Continue to the investigator"
-    else:
-        primary_cta_href = "/login"
-        primary_cta_label = "Get Started"
-        hero_cta_label = "Sign in to investigate"
-        pipeline_cta_label = "Start investigating"
-        database_cta_label = "Sign in to explore the database"
-
     html = LANDING_TEMPLATE.substitute(
-        favicon_tag=favicon_link_tag(),
-        logo_url=LETTERMARK_LOGO_URL_PATH,
-        dashboard_image_url=LANDING_DASHBOARD_URL_PATH,
-        current_year=str(datetime.now(timezone.utc).year),
-        github_url=github_url,
-        app_url=APP_ROUTE,
-        primary_cta_href=primary_cta_href,
-        primary_cta_label=primary_cta_label,
-        hero_cta_label=hero_cta_label,
-        pipeline_cta_label=pipeline_cta_label,
-        database_cta_label=database_cta_label,
+        **_landing_template_vars(
+            locale=locale,
+            auth_enabled=auth_enabled,
+            authenticated=authenticated,
+            github_url=github_url,
+        )
     )
     return html.encode("utf-8")

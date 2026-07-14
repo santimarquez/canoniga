@@ -1,0 +1,13 @@
+{
+  "email.magic_link_subject": "Inicia sesion en {product}",
+  "email.magic_link_preheader": "Tu enlace seguro expira en {minutes} minutos",
+  "email.magic_link_title": "Inicia sesion en {product}",
+  "email.magic_link_intro": "Recibimos una solicitud de inicio de sesion para {email}.",
+  "email.magic_link_cta_intro": "Haz clic en el boton para abrir tu enlace seguro de inicio de sesion.",
+  "email.magic_link_button": "Abrir enlace de inicio",
+  "email.magic_link_expiry": "Este enlace expira en {minutes} minutos. Si no solicitaste este correo, puedes ignorarlo.",
+  "email.magic_link_plain_intro": "Recibimos una solicitud de inicio de sesion para {email}.",
+  "email.magic_link_plain_open": "Abre este enlace seguro para continuar:",
+  "email.magic_link_plain_expiry": "Este enlace expira en {minutes} minutos.",
+  "email.magic_link_plain_ignore": "Si no solicitaste este correo, puedes ignorarlo."
+}

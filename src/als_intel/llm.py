@@ -18,6 +18,12 @@ class LocalLLMError(RuntimeError):
     pass
 
 
+def _effective_timeout_seconds(timeout_seconds: int, *, streaming: bool = False) -> int:
+    requested = max(1, int(timeout_seconds))
+    floor = 180 if streaming else 120
+    return max(requested, floor)
+
+
 def build_grounded_prompt(question: str, evidence_rows: list[dict[str, object]], context_limit: int = 20) -> str:
     clipped = evidence_rows[: max(context_limit, 1)]
     lines: list[str] = []
@@ -79,8 +85,9 @@ def generate_with_ollama(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    effective_timeout = _effective_timeout_seconds(timeout_seconds, streaming=False)
     try:
-        with urlopen(req, timeout=timeout_seconds) as resp:  # noqa: S310
+        with urlopen(req, timeout=effective_timeout) as resp:  # noqa: S310
             raw = resp.read().decode("utf-8")
     except URLError as exc:
         raise LocalLLMError(
@@ -125,8 +132,9 @@ def generate_with_ollama_stream(
         method="POST",
     )
 
+    effective_timeout = _effective_timeout_seconds(timeout_seconds, streaming=True)
     try:
-        with urlopen(req, timeout=timeout_seconds) as resp:  # noqa: S310
+        with urlopen(req, timeout=effective_timeout) as resp:  # noqa: S310
             for raw_line in resp:
                 line = raw_line.decode("utf-8").strip()
                 if not line:

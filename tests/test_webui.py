@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import importlib
+
+import pytest
+
 from als_intel.brand import LOGO_PRIMARY_COLOR, favicon_link_tag, render_inline_logo
 from als_intel.webui import (
     LOGIN_TEMPLATE,
@@ -10,6 +14,7 @@ from als_intel.webui import (
     _build_synthesis,
     _rank_cited_evidence_rows,
     _search_evidence_rows,
+    render_index_page,
 )
 
 
@@ -279,6 +284,38 @@ def test_investigator_template_has_four_workspace_tabs_and_profile_menu() -> Non
     assert "function switchView" in template
 
 
+def test_default_timeout_seconds_defaults_to_300(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ALS_TIMEOUT_SECONDS", raising=False)
+    import als_intel.webui as webui_module
+
+    importlib.reload(webui_module)
+    assert webui_module.DEFAULT_TIMEOUT_SECONDS == 300
+
+
+def test_index_page_embeds_configured_timeout_seconds() -> None:
+    body = render_index_page(
+        db_path="/tmp/test.sqlite",
+        ollama_host="http://localhost:11434",
+        model="llama3.1:8b",
+        context_limit=20,
+        temperature=0.1,
+        timeout_seconds=300,
+        auth_enabled=False,
+    ).decode("utf-8")
+    assert "timeoutSeconds: Number('300')" in body
+
+
+def test_investigator_template_includes_llm_timeout_helpers() -> None:
+    template = PAGE_TEMPLATE.template
+    assert "function renderReportPlaceholder" in template
+    assert "function isTimeoutError" in template
+    assert "function formatLlmError" in template
+    assert "llm_timeout_hint" in template
+    assert "stream_fallback" in template
+    assert "report_placeholder" in template
+    assert "if (isTimeoutError(streamError))" in template
+
+
 def test_governance_doc_route_helper_serves_mission_md() -> None:
     from als_intel.webui import render_governance_doc_page
 
@@ -293,15 +330,13 @@ def test_governance_doc_route_helper_serves_mission_md() -> None:
 
 
 def test_login_template_includes_magic_link_confirmation_panel() -> None:
-    html = LOGIN_TEMPLATE.substitute(
-        auth_enabled="true",
-        current_year="2026",
-        logo_html=render_inline_logo(height_px=48),
-        favicon_tag=favicon_link_tag(),
-    )
+    from als_intel.webui import render_login_page
+
+    html = render_login_page(auth_enabled=True, locale="en").decode("utf-8")
     assert "<svg" in html
     assert LOGO_PRIMARY_COLOR in html
     assert 'id="loginRequestPanel"' in html
     assert 'id="loginResultPanel"' in html
     assert "Check your email" in html
     assert "showLoginResultPanel" in html
+    assert 'id="loginEmail"' in html

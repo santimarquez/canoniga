@@ -8,6 +8,7 @@ from als_intel.emails.layout import (
 )
 from als_intel.emails.theme import PRODUCT_NAME
 from als_intel.emails.types import EmailContent
+from als_intel.i18n import normalize_locale, t as translate
 
 
 def build_magic_link_email(
@@ -15,32 +16,45 @@ def build_magic_link_email(
     magic_link: str,
     expires_minutes: int,
     recipient_email: str,
+    locale: str = "en",
 ) -> EmailContent:
-    subject = f"Sign in to {PRODUCT_NAME}"
-    preheader = f"Your secure sign-in link expires in {expires_minutes} minutes"
+    safe_locale = normalize_locale(locale) or "en"
     safe_email = recipient_email.strip()
+    subject = translate(
+        safe_locale,
+        "email.magic_link_subject",
+        product=PRODUCT_NAME,
+    )
+    preheader = translate(
+        safe_locale,
+        "email.magic_link_preheader",
+        minutes=expires_minutes,
+    )
 
     plain_text = (
-        f"Sign in to {PRODUCT_NAME}\n\n"
-        f"We received a request to sign in as {safe_email}.\n\n"
-        f"Open this secure link to continue:\n{magic_link}\n\n"
-        f"This link expires in {expires_minutes} minutes.\n"
-        "If you did not request this email, you can safely ignore it."
+        translate(safe_locale, "email.magic_link_title", product=PRODUCT_NAME)
+        + "\n\n"
+        + translate(safe_locale, "email.magic_link_plain_intro", email=safe_email)
+        + "\n\n"
+        + translate(safe_locale, "email.magic_link_plain_open")
+        + f"\n{magic_link}\n\n"
+        + translate(safe_locale, "email.magic_link_plain_expiry", minutes=expires_minutes)
+        + "\n"
+        + translate(safe_locale, "email.magic_link_plain_ignore")
     )
 
     body_html = (
-        render_paragraph(f"We received a request to sign in as {safe_email}.")
-        + render_paragraph("Click the button below to open your secure sign-in link.")
-        + render_button("Open sign-in link", magic_link)
+        render_paragraph(translate(safe_locale, "email.magic_link_intro", email=safe_email))
+        + render_paragraph(translate(safe_locale, "email.magic_link_cta_intro"))
+        + render_button(translate(safe_locale, "email.magic_link_button"), magic_link)
         + render_link_fallback(magic_link)
         + render_paragraph(
-            f"This link expires in {expires_minutes} minutes. "
-            "If you did not request this email, you can safely ignore it."
+            translate(safe_locale, "email.magic_link_expiry", minutes=expires_minutes)
         )
     )
 
     html = render_email_layout(
-        title=f"Sign in to {PRODUCT_NAME}",
+        title=translate(safe_locale, "email.magic_link_title", product=PRODUCT_NAME),
         preheader=preheader,
         body_html=body_html,
     )

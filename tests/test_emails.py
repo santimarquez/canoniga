@@ -26,7 +26,20 @@ def test_build_magic_link_email_plain_text() -> None:
     assert "ignore" in content.plain_text.lower()
 
 
-def test_build_magic_link_email_html_branding() -> None:
+def test_build_magic_link_email_spanish() -> None:
+    content = build_magic_link_email(
+        magic_link="http://localhost:8000/?magic_token=abc123",
+        expires_minutes=15,
+        recipient_email="analyst@example.com",
+        locale="es",
+    )
+
+    assert "analyst@example.com" in content.plain_text
+    assert "15" in content.plain_text
+    assert "ignore" not in content.plain_text.lower()
+    assert "ignor" in content.plain_text.lower()
+
+
     content = build_magic_link_email(
         magic_link="http://localhost:8000/?magic_token=abc123",
         expires_minutes=15,

@@ -292,6 +292,29 @@ export ALS_SMTP_PORT=1025
 export ALS_SMTP_STARTTLS=0
 ```
 
+## Localization (English + Spanish)
+
+The landing page, login flow, investigator app, legal/governance chrome, and magic-link emails share a locale module in `src/als_intel/i18n/`.
+
+Locale resolution order (server and client aligned):
+
+1. `?lang=en` or `?lang=es` query parameter (also sets the `als_lang` cookie)
+2. `als_lang` cookie (`Path=/`, 1-year lifetime, `SameSite=Lax`)
+3. Browser language (`Accept-Language` on the server, `navigator.language` in the app)
+4. Fallback: `en`
+
+Changing language in the app settings or landing/login switcher updates the cookie and `localStorage` key `als_lang` so preference persists across `/`, `/login`, and `/app`.
+
+Legal policy bodies and governance markdown docs remain English-only; localized chrome includes an English-only notice banner.
+
+Magic-link emails use the locale from the `als_lang` cookie (or optional `language` field in `/api/auth/request-link` POST body).
+
+Run locale tests with:
+
+```bash
+pytest tests/test_i18n.py -q
+```
+
 Rate-limiting:
 
 - `ALS_MAGIC_LINK_RATE_LIMIT_COUNT` (default: `3`): max requests allowed per email in window.

@@ -34,6 +34,16 @@ from als_intel.brand import (
     logo_mime_type,
     render_inline_logo,
 )
+from als_intel.i18n import (
+    app_client_i18n_json,
+    common_strings,
+    legal_strings,
+    locale_cookie_header,
+    locale_setter_script,
+    login_strings,
+    resolve_locale,
+    t as translate,
+)
 from als_intel.landing import APP_ROUTE, render_landing_page
 from als_intel.llm import LocalLLMError, build_grounded_prompt, generate_with_ollama, generate_with_ollama_stream
 from als_intel.markdown_render import extract_markdown_title, render_markdown_to_html
@@ -52,7 +62,7 @@ PUBLIC_PAGE_PATHS = {"/", "/index.html", "/login", "/privacy", "/terms"}
 APP_PAGE_PATHS = {APP_ROUTE, f"{APP_ROUTE}/index.html"}
 DEFAULT_CONTEXT_LIMIT = int(os.getenv("ALS_CONTEXT_LIMIT", "20"))
 DEFAULT_TEMPERATURE = float(os.getenv("ALS_TEMPERATURE", "0.1"))
-DEFAULT_TIMEOUT_SECONDS = int(os.getenv("ALS_TIMEOUT_SECONDS", "120"))
+DEFAULT_TIMEOUT_SECONDS = int(os.getenv("ALS_TIMEOUT_SECONDS", "300"))
 DEFAULT_AUTH_ENABLED = os.getenv("ALS_AUTH_ENABLED", "1").strip() not in {"0", "false", "False"}
 MAX_CITED_EVIDENCE_ROWS = 80
 TELEMETRY_MAX_RECENT = 200
@@ -64,7 +74,7 @@ _RECENT_QUERY_TELEMETRY_LOCK = Lock()
 PAGE_TEMPLATE = Template(
     """
 <!doctype html>
-<html lang="en">
+<html lang="$initial_language">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -1428,19 +1438,19 @@ PAGE_TEMPLATE = Template(
           <div>
             <div id="evidenceTypeLabel" class="label">Evidence type</div>
             <div class="type-list small">
-              <label><input type="checkbox" name="etype" value="observational" checked /> Observational</label>
-              <label><input type="checkbox" name="etype" value="interventional" checked /> Interventional</label>
-              <label><input type="checkbox" name="etype" value="mechanistic" /> Mechanistic</label>
-              <label><input type="checkbox" name="etype" value="genetic" /> Genetic</label>
-              <label><input type="checkbox" name="etype" value="negative" /> Negative findings</label>
+              <label><input type="checkbox" name="etype" value="observational" checked /> <span id="evidenceTypeObservational">Observational</span></label>
+              <label><input type="checkbox" name="etype" value="interventional" checked /> <span id="evidenceTypeInterventional">Interventional</span></label>
+              <label><input type="checkbox" name="etype" value="mechanistic" /> <span id="evidenceTypeMechanistic">Mechanistic</span></label>
+              <label><input type="checkbox" name="etype" value="genetic" /> <span id="evidenceTypeGenetic">Genetic</span></label>
+              <label><input type="checkbox" name="etype" value="negative" /> <span id="evidenceTypeNegative">Negative findings</span></label>
             </div>
           </div>
           <div>
             <div id="publicationDateLabel" class="label">Publication date</div>
             <select id="dateWindow">
-              <option value="last5">Last 5 years</option>
-              <option value="last10">Last 10 years</option>
-              <option value="all" selected>All time</option>
+              <option id="dateWindowLast5" value="last5">Last 5 years</option>
+              <option id="dateWindowLast10" value="last10">Last 10 years</option>
+              <option id="dateWindowAll" value="all" selected>All time</option>
             </select>
           </div>
           <div>
@@ -1608,7 +1618,7 @@ PAGE_TEMPLATE = Template(
         <div class="settings-modal-body">
           <section class="settings-section">
             <div style="max-width:340px">
-              <div class="label" style="margin-bottom:6px">General Settings</div>
+              <div id="settingsGeneralLabel" class="label" style="margin-bottom:6px">General Settings</div>
               <div id="settingsLanguageLabel" class="small" style="margin-bottom:8px;color:#0f172a;font-weight:600">Language Selector</div>
               <select id="settingsLanguage">
                 <option value="en">English</option>
@@ -1623,8 +1633,8 @@ PAGE_TEMPLATE = Template(
           </section>
           <section class="settings-section">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-              <div class="small" style="font-size:24px;line-height:1.2;font-weight:600;color:#0f172a">Technical Configuration</div>
-              <span class="tiny mono" style="padding:2px 8px;border-radius:4px;background:#e2e8f0;border:1px solid #cbd5e1;color:#334155;text-transform:uppercase;letter-spacing:0.05em;font-weight:700">Read Only</span>
+              <div id="settingsTechnicalLabel" class="small" style="font-size:24px;line-height:1.2;font-weight:600;color:#0f172a">Technical Configuration</div>
+              <span id="settingsReadOnlyLabel" class="tiny mono" style="padding:2px 8px;border-radius:4px;background:#e2e8f0;border:1px solid #cbd5e1;color:#334155;text-transform:uppercase;letter-spacing:0.05em;font-weight:700">Read Only</span>
             </div>
             <div class="settings-grid" style="grid-template-columns:1fr 1fr;gap:12px">
               <div>
@@ -1759,7 +1769,7 @@ PAGE_TEMPLATE = Template(
         currentUser: null,
         csrfToken: '',
         host: '$ollama_host',
-        language: 'es',
+        language: '$initial_language',
         contextLimit: Number('$context_limit'),
         temperature: Number('$temperature'),
         timeoutSeconds: Number('$timeout_seconds'),
@@ -1801,6 +1811,27 @@ PAGE_TEMPLATE = Template(
         },
       };
 
+function setLocale(lang) {
+  const safe = String(lang || '').toLowerCase().startsWith('es') ? 'es' : 'en';
+  document.cookie = 'als_lang=' + safe + ';path=/;max-age=31536000;samesite=lax';
+  try { window.localStorage.setItem('als_lang', safe); } catch (_) {}
+}
+function readStoredLocale() {
+  try {
+    const stored = String(window.localStorage.getItem('als_lang') || '').trim().toLowerCase();
+    if (stored.startsWith('es')) return 'es';
+    if (stored.startsWith('en')) return 'en';
+  } catch (_) {}
+  const match = document.cookie.match(/(?:^|;\s*)als_lang=([^;]+)/);
+  if (match) {
+    const cookieValue = decodeURIComponent(match[1] || '').trim().toLowerCase();
+    if (cookieValue.startsWith('es')) return 'es';
+    if (cookieValue.startsWith('en')) return 'en';
+  }
+  const browser = String(navigator.language || '').toLowerCase();
+  return browser.startsWith('es') ? 'es' : 'en';
+}
+
       const nativeFetch = window.fetch.bind(window);
       window.fetch = (input, init = {}) => {
         const headers = new Headers((init && init.headers) || {});
@@ -1810,445 +1841,7 @@ PAGE_TEMPLATE = Template(
         return nativeFetch(input, { ...init, headers });
       };
 
-      const I18N = {
-        en: {
-          nav_assistant: 'Assistant',
-          nav_sessions: 'Saved Sessions',
-          nav_hypothesis: 'Hypothesis queue',
-          nav_review: 'Review queue',
-          filter_title: 'Evidence Filters',
-          evidence_type: 'Evidence type',
-          publication_date: 'Publication date',
-          min_reliability: 'Min reliability',
-          highlight_contradictions: 'Highlight contradictions',
-          reset: 'Reset',
-          apply: 'Apply',
-          query_evidence: 'Query evidence database',
-          question_placeholder: 'Enter clinical question or hypothesis...',
-          saved_sessions: 'Saved sessions',
-          refresh: 'Refresh',
-          evidence_nodes: 'Evidence Nodes',
-          found: 'found',
-          compare_nodes: 'Compare nodes',
-          run_compare: 'Run compare',
-          settings: 'Settings',
-          close: 'Cancel',
-          language: 'Language Selector',
-          model: 'AI Model',
-          host: 'Host',
-          context_limit: 'Context Limit',
-          temperature: 'Temperature',
-          timeout_seconds: 'Timeout seconds',
-          apply_settings: 'Save Changes',
-          save_session: 'Save session',
-          export_summary: 'Export summary',
-          copy_citations: 'Copy citations',
-          db_explorer_title: 'Database explorer',
-          db_search_label: 'Search nodes',
-          db_search_placeholder: 'Search by claim text, claim id, entity, outcome, or DOI',
-          db_search: 'Search',
-          db_clear: 'Clear',
-          db_prev: 'Prev',
-          db_next: 'Next',
-          db_close: 'Close',
-          db_no_rows: 'No nodes found for the current search.',
-          db_open_hint: 'Open database explorer',
-          db_meta_title: 'Source metadata',
-          db_meta_view: 'View full metadata',
-          db_meta_hide: 'Hide metadata',
-          db_meta_loading: 'Loading metadata...',
-          db_meta_error: 'Metadata unavailable',
-          db_meta_not_found: 'No source metadata found for this node.',
-          db_meta_journal: 'Journal',
-          db_meta_pubdate: 'Pub date',
-          db_meta_authors: 'Authors',
-          db_meta_mesh_terms: 'MeSH terms',
-          db_meta_abstract: 'Abstract',
-          yes: 'yes',
-          no: 'no',
-          review_queue: 'Review queue',
-          review_queue_subtitle: 'Claims requiring human review',
-          reviewer: 'Reviewer',
-          notes: 'Notes',
-          refresh: 'Refresh',
-          approve: 'Approve',
-          reject: 'Reject',
-          needs_more_evidence: 'Needs more evidence',
-          decision_history: 'Decision history',
-          no_review_flags: 'No review flags at the moment.',
-          review_decision_saved: 'Review decision saved.',
-          hypothesis_queue: 'Hypothesis queue',
-          promotion_controls: 'Promotion controls',
-          require_review_signoff: 'Require review signoff',
-          enforce_causal_gate: 'Enforce causal gate',
-          promoted_hypotheses: 'Promoted hypotheses',
-          filtered_out_controls: 'Filtered out by controls',
-          no_hypotheses: 'No hypotheses were promoted with current controls.',
-          no_filtered_entities: 'No entities were filtered out.',
-          db_synced: 'DB synced',
-          db_out_of_sync: 'DB out of sync',
-          db_unavailable: 'DB unavailable',
-          db_popover_title: 'Database status',
-          db_popover_total_label: 'evidence nodes',
-          db_popover_last_sync: 'Last sync',
-          db_popover_ready: 'Database is online and query-ready.',
-          db_popover_waiting: 'Database online, waiting for first ingestion.',
-          db_popover_loading: 'Loading database status...',
-          db_popover_unavailable: 'Database status is unavailable.',
-          db_popover_hint: 'Click to open the database explorer.',
-          evidence_hint_idle: 'Cited evidence will appear here after you run a query.',
-          evidence_hint_empty: 'No evidence nodes were cited in this report.',
-          report_title: 'Synthesis Report',
-          generated_in: 'Generated in {seconds}s',
-          direct_answer: 'Direct answer',
-          supporting_nodes: 'Supporting evidence nodes',
-          contradictions_uncertainty: 'Contradictions and uncertainty',
-          next_validation_step: 'Next validation step',
-          run_this_query: 'Run this query',
-          generating_report: 'Generating Synthesis Report',
-          in_progress: 'In progress',
-          loading_copy: 'Analyzing evidence and composing a fresh report for your query.',
-          type_question_first: 'Type a question first.',
-          generating_new_report: 'Generating a new synthesis report...',
-          stream_loading_evidence: 'Loading and filtering evidence...',
-          stream_building_prompt: 'Building grounded prompt...',
-          stream_generating: 'Generating answer...',
-          stream_post_processing: 'Linking citations and synthesis metadata...',
-          stream_done: 'Streaming complete. {count} rows used.',
-          telemetry_phase_summary: 'Phases(s): load {loading}, prompt {prompt}, gen {gen}, post {post}, total {total}.',
-          diagnostics_title: 'Diagnostics',
-          diagnostics_empty: 'No diagnostics yet.',
-          rows_retrieved: 'Rows retrieved',
-          rows_cited: 'Rows cited',
-          response_mode: 'Response mode',
-          response_mode_stream: 'stream',
-          response_mode_sync: 'sync',
-          response_mode_sync_fallback: 'sync fallback',
-          guardrail_flags: 'Guardrails',
-          verification_flags: 'Verification',
-          failure_atlas_title: 'Failure Atlas',
-          failure_atlas_empty: 'No failure atlas entries yet.',
-          failure_atlas_total: 'Failed or negative records',
-          failure_atlas_structured: 'Structured trial failures',
-          trial_status: 'Trial status',
-          termination_reason: 'Termination reason',
-          primary_endpoint_result: 'Primary endpoint result',
-          root_cause: 'Root cause',
-          done_rows_used: 'Done. {count} rows used.',
-          no_report_to_save: 'No report to save yet.',
-          session_saved: 'Session saved to database.',
-          no_saved_sessions: 'No saved sessions.',
-          loading_sessions: 'Loading sessions...',
-          loaded_latest_session: 'Loaded latest saved session.',
-          filters_updated: 'Filters updated. Run a query to refresh cited evidence nodes.',
-          filters_reset: 'Filters reset. Run a query to refresh cited evidence nodes.',
-          no_report_to_export: 'No report to export yet.',
-          exported_summary: 'Exported JSON and Markdown summary.',
-          no_citations_to_copy: 'No citations to copy yet.',
-          no_supporting_ids: 'No supporting claim ids found.',
-          copied_claims: 'Copied {count} claim ids with DOIs.',
-          settings_applied: 'Settings applied for this session.',
-          profile_disabled: 'Profile controls are not enabled in simple investigator mode.',
-          profile_menu_edit: 'Edit profile',
-          profile_menu_settings: 'Settings',
-          profile_menu_logout: 'Logout',
-          profile_drawer_title: 'Edit profile',
-          profile_display_name: 'Display name',
-          profile_title: 'Title / role',
-          profile_institution: 'Institution',
-          profile_remove_photo: 'Remove photo',
-          profile_avatar_hint: 'PNG or JPEG, up to 256 KB.',
-          profile_save: 'Save profile',
-          profile_saved: 'Profile updated.',
-          profile_save_failed: 'Could not save profile.',
-          profile_guest_name: 'Guest investigator',
-          compare_prompt: 'Provide two claim ids to compare.',
-          shared_supporting: 'shared supporting',
-          shared_contradicting: 'shared contradicting',
-          follow_up: 'Follow-up',
-          default_follow_up: 'Run targeted validation for conflicting endpoints.',
-          updated: 'Updated',
-          claim_a: 'Claim A',
-          claim_b: 'Claim B',
-          study_type: 'Study type',
-          effect: 'Effect',
-          use_in_compare: 'Use in compare',
-          start_tour: 'Start Tour',
-          tutorial_title: 'Quick tour: investigate with confidence',
-          tutorial_back: 'Back',
-          tutorial_next: 'Next',
-          tutorial_finish: 'Finish',
-          tutorial_stop: 'Stop',
-          tutorial_progress: 'Step {current} of {total}',
-          tutorial_wait_for_action: 'Complete the highlighted action to continue.',
-          tutorial_done: 'Tutorial completed. You can relaunch it anytime from Start Tour.',
-          tutorial_stopped: 'Tutorial stopped. You can restart it from Start Tour.',
-          tutorial_step_query_title: 'Step 1: Ask a clear question',
-          tutorial_step_query_body: 'Use this box to define one concrete investigation question. Keep it short and specific.',
-          tutorial_step_send_title: 'Step 2: Run the investigation',
-          tutorial_step_send_body: 'Click Send to generate a synthesis report grounded in evidence. Wait until the report appears.',
-          tutorial_step_report_title: 'Step 3: Read the synthesis',
-          tutorial_step_report_body: 'This report is your synthesis: direct answer, cited evidence, uncertainty, and a concrete next move.',
-          tutorial_step_validation_title: 'Step 4: Validation section',
-          tutorial_step_validation_body: 'Pay special attention to contradictions and the Next validation step. This is where you decide what to verify next.',
-          tutorial_step_diagnostics_title: 'Step 5: Diagnostics area',
-          tutorial_step_diagnostics_body: 'Diagnostics explains how the response was built: rows retrieved, citations used, timing, and guardrails.',
-          tutorial_step_save_title: 'Step 6: Save session',
-          tutorial_step_save_body: 'Save Session stores your current investigation state so you can continue later without losing context.',
-          tutorial_step_export_title: 'Step 7: Export summary',
-          tutorial_step_export_body: 'Export Summary downloads your synthesis in JSON and Markdown for reporting and sharing.',
-          tutorial_step_copy_title: 'Step 8: Copy citations',
-          tutorial_step_copy_body: 'Copy Citations puts supporting claim IDs and source DOIs on your clipboard for fast referencing.',
-          tutorial_step_db_open_title: 'Step 9: Open evidence database explorer',
-          tutorial_step_db_open_body: 'Click DB synced to open the evidence database explorer and inspect indexed claims directly.',
-          tutorial_step_db_explorer_title: 'Step 10: Explore evidence database',
-          tutorial_step_db_explorer_body: 'Use this explorer to search claims, review metadata, and inspect provenance before making decisions.',
-          tutorial_step_sessions_nav_title: 'Step 11: Open saved sessions',
-          tutorial_step_sessions_nav_body: 'Go to Saved Sessions to revisit previous investigations and recover their report context.',
-          tutorial_step_sessions_list_title: 'Step 12: Saved sessions list',
-          tutorial_step_sessions_list_body: 'Select any session to restore question, synthesis, and cited evidence in one click.',
-          tutorial_step_hypothesis_open_title: 'Step 13: Open hypothesis queue',
-          tutorial_step_hypothesis_open_body: 'The hypothesis queue proposes prioritized candidate hypotheses from current evidence and controls.',
-          tutorial_step_hypothesis_queue_title: 'Step 14: How hypothesis queue works',
-          tutorial_step_hypothesis_queue_body: 'Promoted hypotheses are candidates to pursue now. Filtered entities were excluded by signoff/causal controls.',
-          tutorial_step_review_open_title: 'Step 15: Open review queue',
-          tutorial_step_review_open_body: 'The review queue is where high-risk or uncertain claims are escalated for human decisions.',
-          tutorial_step_review_queue_title: 'Step 16: How review queue works',
-          tutorial_step_review_queue_body: 'Choose a claim, add reviewer notes, and record approve/reject/needs-more-evidence to keep an auditable trail.',
-          tutorial_step_evidence_title: 'Step 17: Inspect evidence nodes',
-          tutorial_step_evidence_body: 'These are cited evidence nodes. Green tends to support, red contradicts, and yellow is mixed/neutral.',
-          tutorial_step_lineage_title: 'Step 18: Open lineage details',
-          tutorial_step_lineage_body: 'Click one evidence node to inspect citation lineage and supporting versus contradicting context.',
-          tutorial_step_filters_title: 'Step 19: Refine filters',
-          tutorial_step_filters_body: 'Adjust filters to narrow evidence quality and scope, then click Apply.',
-          tutorial_step_compare_title: 'Step 20: Compare two claims',
-          tutorial_step_compare_body: 'Use compare to check overlap and contradictions between two claim IDs.',
-          tutorial_controls_label: 'Tutorial',
-          tutorial_short_button: 'Short tutorial',
-          tutorial_long_button: 'Long tutorial',
-          tutorial_mode_short: 'Short Tour',
-          tutorial_mode_full: 'Full Tour',
-          tutorial_mode_label: 'Tutorial mode',
-        },
-        es: {
-          nav_assistant: 'Asistente',
-          nav_sessions: 'Sesiones guardadas',
-          nav_hypothesis: 'Cola de hipotesis',
-          nav_review: 'Cola de revision',
-          filter_title: 'Filtros de evidencia',
-          evidence_type: 'Tipo de evidencia',
-          publication_date: 'Fecha de publicacion',
-          min_reliability: 'Confiabilidad minima',
-          highlight_contradictions: 'Resaltar contradicciones',
-          reset: 'Restablecer',
-          apply: 'Aplicar',
-          query_evidence: 'Consultar base de evidencia',
-          question_placeholder: 'Escribe una pregunta clinica o hipotesis...',
-          saved_sessions: 'Sesiones guardadas',
-          refresh: 'Actualizar',
-          evidence_nodes: 'Nodos de evidencia',
-          found: 'encontrados',
-          compare_nodes: 'Comparar nodos',
-          run_compare: 'Comparar',
-          settings: 'Configuracion',
-          close: 'Cancelar',
-          language: 'Selector de idioma',
-          model: 'Modelo IA',
-          host: 'Host',
-          context_limit: 'Limite de contexto',
-          temperature: 'Temperatura',
-          timeout_seconds: 'Tiempo de espera (s)',
-          apply_settings: 'Guardar cambios',
-          save_session: 'Guardar sesion',
-          export_summary: 'Exportar resumen',
-          copy_citations: 'Copiar citas',
-          db_explorer_title: 'Explorador de base de datos',
-          db_search_label: 'Buscar nodos',
-          db_search_placeholder: 'Buscar por texto, id, entidad, resultado o DOI',
-          db_search: 'Buscar',
-          db_clear: 'Limpiar',
-          db_prev: 'Anterior',
-          db_next: 'Siguiente',
-          db_close: 'Cerrar',
-          db_no_rows: 'No se encontraron nodos para la busqueda actual.',
-          db_open_hint: 'Abrir explorador de base de datos',
-          db_meta_title: 'Metadatos de la fuente',
-          db_meta_view: 'Ver metadatos completos',
-          db_meta_hide: 'Ocultar metadatos',
-          db_meta_loading: 'Cargando metadatos...',
-          db_meta_error: 'Metadatos no disponibles',
-          db_meta_not_found: 'No se encontraron metadatos de fuente para este nodo.',
-          db_meta_journal: 'Revista',
-          db_meta_pubdate: 'Fecha de publicacion',
-          db_meta_authors: 'Autores',
-          db_meta_mesh_terms: 'Terminos MeSH',
-          db_meta_abstract: 'Resumen',
-          yes: 'si',
-          no: 'no',
-          review_queue: 'Cola de revision',
-          review_queue_subtitle: 'Claims que requieren revision humana',
-          reviewer: 'Revisor',
-          notes: 'Notas',
-          approve: 'Aprobar',
-          reject: 'Rechazar',
-          needs_more_evidence: 'Necesita mas evidencia',
-          decision_history: 'Historial de decisiones',
-          no_review_flags: 'No hay alertas de revision en este momento.',
-          review_decision_saved: 'Decision de revision guardada.',
-          hypothesis_queue: 'Cola de hipotesis',
-          promotion_controls: 'Controles de promocion',
-          require_review_signoff: 'Requerir aprobacion de revision',
-          enforce_causal_gate: 'Aplicar puerta causal',
-          promoted_hypotheses: 'Hipotesis promovidas',
-          filtered_out_controls: 'Filtradas por controles',
-          no_hypotheses: 'No se promovieron hipotesis con los controles actuales.',
-          no_filtered_entities: 'No hay entidades filtradas.',
-          db_synced: 'BD sincronizada',
-          db_out_of_sync: 'BD fuera de sincronizacion',
-          db_unavailable: 'BD no disponible',
-          db_popover_title: 'Estado de la base de datos',
-          db_popover_total_label: 'nodos de evidencia',
-          db_popover_last_sync: 'Ultima sincronizacion',
-          db_popover_ready: 'Base de datos en linea y lista para consultas.',
-          db_popover_waiting: 'Base de datos en linea, pendiente de primera ingesta.',
-          db_popover_loading: 'Cargando estado de la base de datos...',
-          db_popover_unavailable: 'Estado de la base de datos no disponible.',
-          db_popover_hint: 'Haz clic para abrir el explorador de base de datos.',
-          evidence_hint_idle: 'Los nodos citados apareceran aqui cuando ejecutes una consulta.',
-          evidence_hint_empty: 'Este informe no cito nodos de evidencia.',
-          report_title: 'Informe de sintesis',
-          generated_in: 'Generado en {seconds}s',
-          direct_answer: 'Respuesta directa',
-          supporting_nodes: 'Nodos de evidencia de soporte',
-          contradictions_uncertainty: 'Contradicciones e incertidumbre',
-          next_validation_step: 'Siguiente paso de validacion',
-          run_this_query: 'Ejecutar esta consulta',
-          generating_report: 'Generando informe de sintesis',
-          in_progress: 'En progreso',
-          loading_copy: 'Analizando evidencia y redactando un informe nuevo para tu consulta.',
-          type_question_first: 'Primero escribe una pregunta.',
-          generating_new_report: 'Generando un nuevo informe de sintesis...',
-          stream_loading_evidence: 'Cargando y filtrando evidencia...',
-          stream_building_prompt: 'Construyendo prompt con evidencia...',
-          stream_generating: 'Generando respuesta...',
-          stream_post_processing: 'Vinculando citas y metadatos de sintesis...',
-          stream_done: 'Transmision completada. {count} filas utilizadas.',
-          telemetry_phase_summary: 'Fases(s): carga {loading}, prompt {prompt}, gen {gen}, post {post}, total {total}.',
-          diagnostics_title: 'Diagnostico',
-          diagnostics_empty: 'Sin diagnosticos por ahora.',
-          rows_retrieved: 'Filas recuperadas',
-          rows_cited: 'Filas citadas',
-          response_mode: 'Modo de respuesta',
-          response_mode_stream: 'stream',
-          response_mode_sync: 'sync',
-          response_mode_sync_fallback: 'sync fallback',
-          guardrail_flags: 'Guardrails',
-          verification_flags: 'Verification',
-          failure_atlas_title: 'Atlas de fallos',
-          failure_atlas_empty: 'Sin entradas en el atlas de fallos.',
-          failure_atlas_total: 'Registros fallidos o negativos',
-          failure_atlas_structured: 'Fallos estructurados de ensayo',
-          trial_status: 'Estado del ensayo',
-          termination_reason: 'Motivo de terminacion',
-          primary_endpoint_result: 'Resultado del endpoint primario',
-          root_cause: 'Causa raiz',
-          done_rows_used: 'Listo. {count} filas utilizadas.',
-          no_report_to_save: 'Aun no hay informe para guardar.',
-          session_saved: 'Sesion guardada en la base de datos.',
-          no_saved_sessions: 'No hay sesiones guardadas.',
-          loading_sessions: 'Cargando sesiones...',
-          loaded_latest_session: 'Se cargo la ultima sesion guardada.',
-          filters_updated: 'Filtros actualizados. Ejecuta una consulta para refrescar los nodos citados.',
-          filters_reset: 'Filtros restablecidos. Ejecuta una consulta para refrescar los nodos citados.',
-          no_report_to_export: 'Aun no hay informe para exportar.',
-          exported_summary: 'Resumen JSON y Markdown exportado.',
-          no_citations_to_copy: 'Aun no hay citas para copiar.',
-          no_supporting_ids: 'No se encontraron ids de soporte.',
-          copied_claims: 'Se copiaron {count} ids con DOI.',
-          settings_applied: 'Configuracion aplicada para esta sesion.',
-          profile_disabled: 'Los controles de perfil no estan habilitados en modo investigador simple.',
-          profile_menu_edit: 'Editar perfil',
-          profile_menu_settings: 'Configuracion',
-          profile_menu_logout: 'Cerrar sesion',
-          profile_drawer_title: 'Editar perfil',
-          profile_display_name: 'Nombre visible',
-          profile_title: 'Cargo / rol',
-          profile_institution: 'Institucion',
-          profile_remove_photo: 'Quitar foto',
-          profile_avatar_hint: 'PNG o JPEG, hasta 256 KB.',
-          profile_save: 'Guardar perfil',
-          profile_saved: 'Perfil actualizado.',
-          profile_save_failed: 'No se pudo guardar el perfil.',
-          profile_guest_name: 'Investigador invitado',
-          compare_prompt: 'Ingresa dos ids de claim para comparar.',
-          shared_supporting: 'soporte compartido',
-          shared_contradicting: 'contradicciones compartidas',
-          follow_up: 'Siguiente paso',
-          default_follow_up: 'Ejecuta una validacion dirigida para endpoints en conflicto.',
-          updated: 'Actualizado',
-          claim_a: 'Claim A',
-          claim_b: 'Claim B',
-          study_type: 'Tipo de estudio',
-          effect: 'Efecto',
-          use_in_compare: 'Usar en comparacion',
-          start_tour: 'Iniciar tutorial',
-          tutorial_title: 'Recorrido rapido: investiga con confianza',
-          tutorial_back: 'Atras',
-          tutorial_next: 'Siguiente',
-          tutorial_finish: 'Finalizar',
-          tutorial_stop: 'Detener',
-          tutorial_progress: 'Paso {current} de {total}',
-          tutorial_wait_for_action: 'Completa la accion resaltada para continuar.',
-          tutorial_done: 'Tutorial completado. Puedes reiniciarlo en cualquier momento con Iniciar tutorial.',
-          tutorial_stopped: 'Tutorial detenido. Puedes reiniciarlo con Iniciar tutorial.',
-          tutorial_step_query_title: 'Paso 1: Formula una pregunta clara',
-          tutorial_step_query_body: 'Usa esta caja para definir una pregunta concreta de investigacion. Mantenla breve y especifica.',
-          tutorial_step_send_title: 'Paso 2: Ejecuta la investigacion',
-          tutorial_step_send_body: 'Haz clic en Enviar para generar un informe de sintesis basado en evidencia. Espera a que aparezca el informe.',
-          tutorial_step_report_title: 'Paso 3: Lee la sintesis',
-          tutorial_step_report_body: 'Este informe es tu sintesis: respuesta directa, evidencia citada, incertidumbre y siguiente accion.',
-          tutorial_step_validation_title: 'Paso 4: Seccion de validacion',
-          tutorial_step_validation_body: 'Fijate en contradicciones y en Siguiente paso de validacion. Aqui decides que verificar despues.',
-          tutorial_step_diagnostics_title: 'Paso 5: Area de diagnostico',
-          tutorial_step_diagnostics_body: 'Diagnostico muestra como se construyo la respuesta: filas recuperadas, citas usadas, tiempos y guardrails.',
-          tutorial_step_save_title: 'Paso 6: Guardar sesion',
-          tutorial_step_save_body: 'Guardar sesion conserva el estado actual de la investigacion para continuar luego sin perder contexto.',
-          tutorial_step_export_title: 'Paso 7: Exportar resumen',
-          tutorial_step_export_body: 'Exportar resumen descarga la sintesis en JSON y Markdown para reporte y colaboracion.',
-          tutorial_step_copy_title: 'Paso 8: Copiar citas',
-          tutorial_step_copy_body: 'Copiar citas coloca en portapapeles los IDs de claim y DOIs de soporte para referenciar rapido.',
-          tutorial_step_db_open_title: 'Paso 9: Abrir explorador de evidencias',
-          tutorial_step_db_open_body: 'Haz clic en BD sincronizada para abrir el explorador de base de evidencias e inspeccionar claims indexados.',
-          tutorial_step_db_explorer_title: 'Paso 10: Explorar base de evidencias',
-          tutorial_step_db_explorer_body: 'Usa este explorador para buscar claims, revisar metadatos y validar procedencia antes de decidir.',
-          tutorial_step_sessions_nav_title: 'Paso 11: Abrir sesiones guardadas',
-          tutorial_step_sessions_nav_body: 'Ve a Sesiones guardadas para recuperar investigaciones previas y su contexto completo.',
-          tutorial_step_sessions_list_title: 'Paso 12: Lista de sesiones guardadas',
-          tutorial_step_sessions_list_body: 'Selecciona una sesion para restaurar pregunta, sintesis y evidencia citada con un clic.',
-          tutorial_step_hypothesis_open_title: 'Paso 13: Abrir cola de hipotesis',
-          tutorial_step_hypothesis_open_body: 'La cola de hipotesis propone candidatos priorizados a partir de la evidencia y los controles.',
-          tutorial_step_hypothesis_queue_title: 'Paso 14: Como funciona la cola de hipotesis',
-          tutorial_step_hypothesis_queue_body: 'Hipotesis promovidas son candidatas para accionar ahora. Entidades filtradas fueron excluidas por controles.',
-          tutorial_step_review_open_title: 'Paso 15: Abrir cola de revision',
-          tutorial_step_review_open_body: 'La cola de revision concentra claims de mayor riesgo o incertidumbre para decision humana.',
-          tutorial_step_review_queue_title: 'Paso 16: Como funciona la cola de revision',
-          tutorial_step_review_queue_body: 'Selecciona un claim, agrega notas y registra aprobar/rechazar/mas evidencia para dejar trazabilidad.',
-          tutorial_step_evidence_title: 'Paso 17: Revisa nodos de evidencia',
-          tutorial_step_evidence_body: 'Estos son nodos citados. Verde suele apoyar, rojo contradice y amarillo es mixto/neutral.',
-          tutorial_step_lineage_title: 'Paso 18: Abre detalles de linaje',
-          tutorial_step_lineage_body: 'Haz clic en un nodo para revisar linaje de citas y contexto de soporte vs contradiccion.',
-          tutorial_step_filters_title: 'Paso 19: Ajusta filtros',
-          tutorial_step_filters_body: 'Ajusta filtros para acotar calidad y alcance de evidencia, luego haz clic en Aplicar.',
-          tutorial_step_compare_title: 'Paso 20: Compara dos claims',
-          tutorial_step_compare_body: 'Usa comparar para revisar solapamientos y contradicciones entre dos IDs de claim.',
-          tutorial_controls_label: 'Tutorial',
-          tutorial_short_button: 'Tutorial corto',
-          tutorial_long_button: 'Tutorial largo',
-          tutorial_mode_short: 'Tour corto',
-          tutorial_mode_full: 'Tour completo',
-          tutorial_mode_label: 'Modo del tutorial',
-        },
-      };
+      const I18N = $i18n_json;
 
       function t(key) {
         const lang = Object.prototype.hasOwnProperty.call(I18N, state.language) ? state.language : 'en';
@@ -2427,6 +2020,17 @@ PAGE_TEMPLATE = Template(
           tutorialBack: t('tutorial_back'),
           tutorialStop: t('tutorial_stop'),
           tutorialNext: t('tutorial_next'),
+          evidenceTypeObservational: t('evidence_type_observational'),
+          evidenceTypeInterventional: t('evidence_type_interventional'),
+          evidenceTypeMechanistic: t('evidence_type_mechanistic'),
+          evidenceTypeGenetic: t('evidence_type_genetic'),
+          evidenceTypeNegative: t('evidence_type_negative'),
+          dateWindowLast5: t('date_window_last5'),
+          dateWindowLast10: t('date_window_last10'),
+          dateWindowAll: t('date_window_all'),
+          settingsGeneralLabel: t('settings_general'),
+          settingsTechnicalLabel: t('settings_technical'),
+          settingsReadOnlyLabel: t('settings_read_only'),
         };
 
         Object.keys(textById).forEach((id) => {
@@ -2467,6 +2071,22 @@ PAGE_TEMPLATE = Template(
         if (profileMenuBtn) {
           profileMenuBtn.title = t('profile_menu_edit');
         }
+        const closeSettingsIcon = byId('closeSettingsIcon');
+        if (closeSettingsIcon) closeSettingsIcon.title = t('title_close_settings');
+        const sendBtn = byId('send');
+        if (sendBtn) sendBtn.title = t('title_send');
+        const openDatabase = byId('openDatabase');
+        if (openDatabase) openDatabase.title = t('title_database');
+        const compareA = byId('compareA');
+        const compareB = byId('compareB');
+        if (compareA) compareA.placeholder = t('compare_placeholder');
+        if (compareB) compareB.placeholder = t('compare_placeholder');
+        const profileDisplayName = byId('profileDisplayName');
+        const profileTitle = byId('profileTitle');
+        const profileInstitution = byId('profileInstitution');
+        if (profileDisplayName) profileDisplayName.placeholder = t('profile_placeholder_name');
+        if (profileTitle) profileTitle.placeholder = t('profile_placeholder_title');
+        if (profileInstitution) profileInstitution.placeholder = t('profile_placeholder_institution');
 
         const minRelLabel = byId('minReliabilityLabel');
         if (minRelLabel) {
@@ -2642,7 +2262,7 @@ PAGE_TEMPLATE = Template(
           clear_avatar: false,
         };
         if (status) {
-          status.textContent = 'Saving...';
+          status.textContent = t('status_saving');
         }
         try {
           if (avatarInput && avatarInput.files && avatarInput.files[0]) {
@@ -2682,7 +2302,7 @@ PAGE_TEMPLATE = Template(
       async function clearProfileAvatarSelection() {
         const status = byId('profileSaveStatus');
         if (status) {
-          status.textContent = 'Saving...';
+          status.textContent = t('status_saving');
         }
         try {
           const resp = await fetch('/api/auth/profile', {
@@ -2977,7 +2597,7 @@ PAGE_TEMPLATE = Template(
         const start = safeTotal ? safeOffset + 1 : 0;
         const end = safeOffset + (Array.isArray(rows) ? rows.length : 0);
         meta.textContent = start + '-' + end + ' / ' + safeTotal;
-        pageLabel.textContent = 'Page ' + String(Math.floor(safeOffset / safeLimit) + 1);
+        pageLabel.textContent = tf('page_n', { page: String(Math.floor(safeOffset / safeLimit) + 1) });
         prev.disabled = safeOffset <= 0;
         next.disabled = end >= safeTotal;
 
@@ -3057,8 +2677,8 @@ PAGE_TEMPLATE = Template(
             '</div>' +
             '<div class="small" style="line-height:1.45">' + escapeHtml(String(row.claim_text || '')) + '</div>' +
             '<div class="db-node-grid tiny muted">' +
-              '<div><strong>Entity:</strong> ' + escapeHtml(String(row.entity || 'n/a')) + '</div>' +
-              '<div><strong>Outcome:</strong> ' + escapeHtml(String(row.outcome || 'n/a')) + '</div>' +
+              '<div><strong>' + t('db_field_entity') + ':</strong> ' + escapeHtml(String(row.entity || 'n/a')) + '</div>' +
+              '<div><strong>' + t('db_field_outcome') + ':</strong> ' + escapeHtml(String(row.outcome || 'n/a')) + '</div>' +
               '<div><strong>Effect:</strong> ' + escapeHtml(String(row.effect_direction || 'n/a')) + '</div>' +
               '<div><strong>Study:</strong> ' + escapeHtml(String(row.study_type || 'n/a')) + '</div>' +
               '<div><strong>Causal type:</strong> ' + escapeHtml(String(row.causal_evidence_type || 'n/a')) + '</div>' +
@@ -3123,7 +2743,7 @@ PAGE_TEMPLATE = Template(
         const status = byId('dbExplorerStatus');
         const query = String(byId('dbSearchInput').value || '').trim();
         state.dbBrowserQuery = query;
-        status.textContent = 'Loading...';
+        status.textContent = t('status_loading');
         try {
           const resp = await fetch('/api/database/nodes', {
             method: 'POST',
@@ -3236,7 +2856,7 @@ PAGE_TEMPLATE = Template(
           item.innerHTML =
             '<div class="db-node-head">' +
               '<span class="mono">' + escapeHtml(String(row.claim_id || 'n/a')) + '</span>' +
-              '<span class="review-chip">risk ' + escapeHtml(String(Math.round(Number(row.risk_score || 0) * 100))) + '%</span>' +
+              '<span class="review-chip">' + t('review_risk') + ' ' + escapeHtml(String(Math.round(Number(row.risk_score || 0) * 100))) + '%</span>' +
             '</div>' +
             '<div class="tiny muted">' + escapeHtml(String(row.entity || 'n/a')) + '</div>' +
             '<div class="review-meta">' +
@@ -3257,7 +2877,7 @@ PAGE_TEMPLATE = Template(
 
       async function fetchReviewFlags() {
         const status = byId('reviewDecisionStatus');
-        status.textContent = 'Loading...';
+        status.textContent = t('status_loading');
         try {
           const resp = await fetch('/api/review/flags', {
             method: 'POST',
@@ -3280,13 +2900,13 @@ PAGE_TEMPLATE = Template(
       async function submitReviewDecision(decision) {
         const claimId = String(state.selectedReviewClaimId || '').trim();
         if (!claimId) {
-          byId('reviewDecisionStatus').textContent = 'Select a claim first.';
+          byId('reviewDecisionStatus').textContent = t('status_select_claim');
           return;
         }
         const reviewer = String(byId('reviewerInput').value || '').trim() || 'investigator_ui';
         const notes = String(byId('reviewNotesInput').value || '').trim();
         const status = byId('reviewDecisionStatus');
-        status.textContent = 'Saving...';
+        status.textContent = t('status_saving');
         try {
           const resp = await fetch('/api/review/decision', {
             method: 'POST',
@@ -3321,7 +2941,7 @@ PAGE_TEMPLATE = Template(
 
         list.innerHTML = '';
         removed.innerHTML = '';
-        meta.textContent = 'promoted ' + String(rows.length) + ' / baseline ' + String(Number(payload.baseline_total || 0));
+        meta.textContent = tf('hypothesis_meta_promoted', { count: String(rows.length), baseline: String(Number(payload.baseline_total || 0)) });
 
         if (!rows.length) {
           const empty = document.createElement('div');
@@ -3364,7 +2984,7 @@ PAGE_TEMPLATE = Template(
         const requireSignoff = byId('hypoRequireSignoff').checked;
         const enforceGate = byId('hypoEnforceCausalGate').checked;
         const meta = byId('hypothesisMeta');
-        meta.textContent = 'Loading...';
+        meta.textContent = t('status_loading');
         try {
           const resp = await fetch('/api/hypothesis/queue', {
             method: 'POST',
@@ -3390,28 +3010,28 @@ PAGE_TEMPLATE = Template(
         const lineage = payload.lineage || {};
         const counts = payload.lineage_counts || {};
 
-        byId('drawerTitle').textContent = 'Claim ' + (claim.claim_id || 'N/A');
+        byId('drawerTitle').textContent = t('lineage_title_prefix') + ' ' + (claim.claim_id || t('time_na'));
         const body = byId('drawerBody');
         body.innerHTML = '';
 
         const claimCard = document.createElement('div');
         claimCard.className = 'section';
         claimCard.innerHTML =
-          '<h4>Claim</h4>' +
-          '<div class="small">' + (claim.claim_text || 'No claim text available.') + '</div>' +
+          '<h4>' + t('lineage_claim') + '</h4>' +
+          '<div class="small">' + (claim.claim_text || t('lineage_no_claim_text')) + '</div>' +
           '<div class="tiny muted" style="margin-top:8px">' +
-          'Entity: ' + (claim.entity || 'n/a') + ' | Outcome: ' + (claim.outcome || 'n/a') +
-          ' | Reliability: ' + Number(claim.reliability_score || 0).toFixed(2) +
+          t('db_field_entity') + ': ' + (claim.entity || t('time_na')) + ' | ' + t('db_field_outcome') + ': ' + (claim.outcome || t('time_na')) +
+          ' | ' + t('lineage_reliability') + ': ' + Number(claim.reliability_score || 0).toFixed(2) +
           '</div>';
 
         const summaryCard = document.createElement('div');
         summaryCard.className = 'section';
         summaryCard.innerHTML =
-          '<h4>Lineage counts</h4>' +
+          '<h4>' + t('lineage_counts') + '</h4>' +
           '<div class="chips">' +
-          '<span class="chip">Supporting: ' + Number(counts.supporting || 0) + '</span>' +
-          '<span class="chip">Contradicting: ' + Number(counts.contradicting || 0) + '</span>' +
-          '<span class="chip">Neutral: ' + Number(counts.neutral || 0) + '</span>' +
+          '<span class="chip">' + t('lineage_chip_supporting_count') + ': ' + Number(counts.supporting || 0) + '</span>' +
+          '<span class="chip">' + t('lineage_chip_contradicting_count') + ': ' + Number(counts.contradicting || 0) + '</span>' +
+          '<span class="chip">' + t('lineage_chip_neutral_count') + ': ' + Number(counts.neutral || 0) + '</span>' +
           '</div>';
 
         function buildListCard(title, rows) {
@@ -3423,7 +3043,7 @@ PAGE_TEMPLATE = Template(
           if (!rows.length) {
             const empty = document.createElement('div');
             empty.className = 'small muted';
-            empty.textContent = 'No rows.';
+            empty.textContent = t('lineage_no_rows');
             wrap.appendChild(empty);
           } else {
             rows.slice(0, 10).forEach((row) => {
@@ -3444,9 +3064,9 @@ PAGE_TEMPLATE = Template(
 
         body.appendChild(claimCard);
         body.appendChild(summaryCard);
-        body.appendChild(buildListCard('Supporting citations', Array.isArray(lineage.supporting_citations) ? lineage.supporting_citations : []));
-        body.appendChild(buildListCard('Contradicting citations', Array.isArray(lineage.contradicting_citations) ? lineage.contradicting_citations : []));
-        body.appendChild(buildListCard('Neutral citations', Array.isArray(lineage.neutral_citations) ? lineage.neutral_citations : []));
+        body.appendChild(buildListCard(t('lineage_supporting'), Array.isArray(lineage.supporting_citations) ? lineage.supporting_citations : []));
+        body.appendChild(buildListCard(t('lineage_contradicting'), Array.isArray(lineage.contradicting_citations) ? lineage.contradicting_citations : []));
+        body.appendChild(buildListCard(t('lineage_neutral'), Array.isArray(lineage.neutral_citations) ? lineage.neutral_citations : []));
       }
 
       async function fetchLineage(claimId) {
@@ -3689,6 +3309,20 @@ PAGE_TEMPLATE = Template(
         shell.appendChild(copy);
         shell.appendChild(skeleton);
         root.appendChild(shell);
+      }
+
+      function renderReportPlaceholder() {
+        const root = byId('report');
+        if (!root) {
+          return;
+        }
+        root.innerHTML =
+          '<div class="report-shell">' +
+            '<div class="report-head">' +
+              '<div class="report-title"><span class="material-symbols-outlined" style="color:var(--primary)">psychiatry</span>' + t('report_title') + '</div>' +
+            '</div>' +
+            '<div class="small muted">' + t('report_placeholder') + '</div>' +
+          '</div>';
       }
 
       function renderStreamingReportShell() {
@@ -3966,7 +3600,7 @@ PAGE_TEMPLATE = Template(
 
       function formatRelativeIso(isoText) {
         if (!isoText) {
-          return 'n/a';
+          return t('time_na');
         }
         const parsed = new Date(String(isoText));
         if (Number.isNaN(parsed.getTime())) {
@@ -3975,17 +3609,17 @@ PAGE_TEMPLATE = Template(
         const deltaMs = Date.now() - parsed.getTime();
         const minutes = Math.round(deltaMs / 60000);
         if (minutes < 1) {
-          return 'just now';
+          return t('time_just_now');
         }
         if (minutes < 60) {
-          return minutes + 'm ago';
+          return tf('time_minutes_ago', { n: String(minutes) });
         }
         const hours = Math.round(minutes / 60);
         if (hours < 48) {
-          return hours + 'h ago';
+          return tf('time_hours_ago', { n: String(hours) });
         }
         const days = Math.round(hours / 24);
-        return days + 'd ago';
+        return tf('time_days_ago', { n: String(days) });
       }
 
       function renderDbPopoverSources(rows, total) {
@@ -4115,9 +3749,22 @@ PAGE_TEMPLATE = Template(
         }
       }
 
+      function isTimeoutError(error) {
+        const message = String(error && error.message ? error.message : error || '');
+        return /timed out|timeout/i.test(message);
+      }
+
+      function formatLlmError(error) {
+        const message = String(error && error.message ? error.message : error || 'Request failed');
+        if (isTimeoutError(error)) {
+          return message + ' ' + t('llm_timeout_hint');
+        }
+        return message;
+      }
+
       async function sendQuestion() {
         if (state.authEnabled && !state.isAuthenticated) {
-          setChatStatus('Please sign in first.', true);
+          setChatStatus(t('auth_sign_in_first'), true);
           updateAuthUI();
           return;
         }
@@ -4237,7 +3884,10 @@ PAGE_TEMPLATE = Template(
             setChatStatus(streamTelemetry ? (streamStatus + ' ' + streamTelemetry) : streamStatus);
             streamSucceeded = true;
           } catch (streamError) {
-            setChatStatus('Streaming unavailable, falling back to standard response...');
+            if (isTimeoutError(streamError)) {
+              throw streamError;
+            }
+            setChatStatus(t('stream_fallback'));
           }
 
           if (!streamSucceeded) {
@@ -4260,7 +3910,10 @@ PAGE_TEMPLATE = Template(
             setChatStatus(fallbackTelemetry ? (fallbackStatus + ' ' + fallbackTelemetry) : fallbackStatus);
           }
         } catch (error) {
-          setChatStatus(String(error), true);
+          if (!state.lastReport) {
+            renderReportPlaceholder();
+          }
+          setChatStatus(formatLlmError(error), true);
         } finally {
           if (sendBtn) {
             sendBtn.disabled = false;
@@ -4278,7 +3931,7 @@ PAGE_TEMPLATE = Template(
 
       async function saveSession() {
         if (state.authEnabled && !state.isAuthenticated) {
-          setChatStatus('Please sign in first.', true);
+          setChatStatus(t('auth_sign_in_first'), true);
           return;
         }
         if (!state.lastReport) {
@@ -4292,7 +3945,7 @@ PAGE_TEMPLATE = Template(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               session_id: state.activeSessionId,
-              title: question ? question.slice(0, 80) : 'Investigator session',
+              title: question ? question.slice(0, 80) : t('session_untitled'),
               question,
               report: state.lastReport,
               messages: state.messages,
@@ -4324,7 +3977,7 @@ PAGE_TEMPLATE = Template(
 
       async function renderSavedSessions() {
         if (state.authEnabled && !state.isAuthenticated) {
-          byId('sessionsList').innerHTML = '<div class="small muted">Please sign in to view saved sessions.</div>';
+          byId('sessionsList').innerHTML = '<div class="small muted">' + t('auth_sign_in_sessions') + '</div>';
           return;
         }
         const list = byId('sessionsList');
@@ -4344,7 +3997,7 @@ PAGE_TEMPLATE = Template(
             item.className = 'session-row';
             item.innerHTML =
               '<div class="mono">' + String(row.session_id || '') + '</div>' +
-              '<div class="small" style="margin-top:4px">' + String(row.title || 'Untitled') + '</div>' +
+              '<div class="small" style="margin-top:4px">' + String(row.title || t('session_untitled')) + '</div>' +
               '<div class="tiny muted" style="margin-top:4px">' + t('updated') + ': ' + String(row.updated_at || '') + '</div>';
             item.addEventListener('click', async () => {
               state.activeSessionId = String(row.session_id || '');
@@ -4381,7 +4034,7 @@ PAGE_TEMPLATE = Template(
       function switchView(viewName) {
         const protectedViews = new Set(['sessions', 'hypothesis', 'review']);
         if (state.authEnabled && !state.isAuthenticated && protectedViews.has(viewName)) {
-          setChatStatus('Please sign in to access this workspace.', true);
+          setChatStatus(t('auth_sign_in_workspace'), true);
           updateAuthUI();
           return;
         }
@@ -5176,11 +4829,11 @@ PAGE_TEMPLATE = Template(
 LOGIN_TEMPLATE = Template(
     """
 <!doctype html>
-<html lang="en" class="light">
+<html lang="$html_lang" class="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MTVL AI | Authentication</title>
+    <title>$t_page_title</title>
     $favicon_tag
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Courier+Prime&display=swap" rel="stylesheet" />
@@ -5268,82 +4921,94 @@ LOGIN_TEMPLATE = Template(
       <main class="w-full max-w-[420px] bg-white evidence-card rounded-lg overflow-hidden flex shadow-sm">
         <div class="accent-bar"></div>
         <div class="flex-1 p-6 flex flex-col gap-6 relative">
-          <a href="/" class="absolute top-4 left-4 text-sm text-blue-900 hover:underline">← Back to home</a>
+          <div class="absolute top-4 right-4 flex items-center gap-1 text-xs" aria-label="$t_lang_label"><a href="?lang=en" class="$lang_en_class">$t_lang_en</a><span>|</span><a href="?lang=es" class="$lang_es_class">$t_lang_es</a></div><a href="/" class="absolute top-4 left-4 text-sm text-blue-900 hover:underline">$t_back_home</a>
           <div class="flex flex-col items-center text-center gap-2">
             $logo_html
-            <p class="text-xs font-semibold text-blue-900 uppercase tracking-widest">Open Source Intelligence</p>
+            <p class="text-xs font-semibold text-blue-900 uppercase tracking-widest">$t_tagline</p>
           </div>
           <div id="loginIntro" class="flex flex-col gap-1 text-center">
-            <h2 class="text-2xl font-semibold text-slate-900">Sign In</h2>
-            <p id="loginIntroText" class="text-sm text-slate-600 px-4">Enter your email to receive a magic link.</p>
+            <h2 class="text-2xl font-semibold text-slate-900">$t_sign_in</h2>
+            <p id="loginIntroText" class="text-sm text-slate-600 px-4">$t_intro</p>
           </div>
           <div id="loginRequestPanel" class="flex flex-col gap-4">
             <form id="loginForm" class="flex flex-col gap-4">
               <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium text-slate-600 ml-1" for="loginEmail">Email</label>
+                <label class="text-xs font-medium text-slate-600 ml-1" for="loginEmail">$t_email_label</label>
                 <div class="relative">
                   <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[20px]">mail</span>
-                  <input id="loginEmail" class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-sm" placeholder="name@university.edu" required type="email" />
+                  <input id="loginEmail" class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 text-sm" placeholder="$t_email_placeholder" required type="email" />
                 </div>
               </div>
               <button id="requestMagicLink" class="w-full bg-blue-900 hover:bg-blue-700 text-white text-sm font-semibold py-3 rounded-lg transition-colors flex items-center justify-center gap-2 group shadow-sm active:scale-[0.98]" type="submit">
-                Send Magic Link
+                $t_send_magic_link
                 <span class="material-symbols-outlined text-[20px] transition-transform group-hover:translate-x-1">arrow_forward</span>
               </button>
             </form>
-            <div id="loginStatus" class="text-xs text-slate-500 text-center">Use your email to receive a secure sign-in link.</div>
+            <div id="loginStatus" class="text-xs text-slate-500 text-center">$t_status_hint</div>
           </div>
           <div id="loginResultPanel" class="hidden flex flex-col gap-4 text-center">
             <div id="loginResultIconWrap" class="w-12 h-12 mx-auto flex items-center justify-center rounded-full">
               <span id="loginResultIcon" class="material-symbols-outlined !text-[28px]">mark_email_read</span>
             </div>
             <div class="flex flex-col gap-2">
-              <h3 id="loginResultTitle" class="text-lg font-semibold text-slate-900">Check your email</h3>
+              <h3 id="loginResultTitle" class="text-lg font-semibold text-slate-900">$t_check_email</h3>
               <p id="loginResultMessage" class="text-sm text-slate-600 px-2"></p>
               <p id="loginResultHint" class="text-xs text-slate-500 px-2"></p>
             </div>
             <div id="loginDevLinkWrap" class="text-xs hidden text-center">
-              <a id="loginDevLink" href="#" target="_blank" rel="noopener noreferrer" class="text-blue-900 underline">Open dev magic link</a>
+              <a id="loginDevLink" href="#" target="_blank" rel="noopener noreferrer" class="text-blue-900 underline">$t_dev_link</a>
             </div>
-            <button id="loginTryAgain" type="button" class="text-sm font-medium text-blue-900 hover:underline">Use a different email</button>
+            <button id="loginTryAgain" type="button" class="text-sm font-medium text-blue-900 hover:underline">$t_try_again</button>
           </div>
         </div>
       </main>
       <div id="loginDbWidget" class="w-full max-w-[420px] mt-4 bg-white/90 border border-slate-200 rounded-lg p-4 flex flex-col gap-2 shadow-sm backdrop-blur-sm loading">
         <div class="flex justify-between items-center">
-          <h3 class="text-xs font-semibold text-slate-800 uppercase tracking-widest">Database Status</h3>
+          <h3 class="text-xs font-semibold text-slate-800 uppercase tracking-widest">$t_db_status</h3>
           <div class="flex items-center gap-1.5">
             <span id="loginDbDot" class="w-2 h-2 bg-emerald-500 rounded-full"></span>
-            <span id="loginDbUpdated" class="text-[11px] text-slate-600">Last Updated: <span id="loginDbUpdatedText">checking...</span></span>
+            <span id="loginDbUpdated" class="text-[11px] text-slate-600">$t_db_last_updated <span id="loginDbUpdatedText">$t_db_checking</span></span>
           </div>
         </div>
         <div class="flex items-baseline gap-2">
           <span id="loginTotalNodes" class="text-xl font-semibold text-blue-900">-</span>
-          <span class="text-xs text-slate-600">Total Evidence Nodes</span>
+          <span class="text-xs text-slate-600">$t_db_total_nodes</span>
         </div>
         <div id="loginSourceList" class="flex flex-col gap-2 mt-1">
           <div class="login-source-skeleton h-2.5 w-full"></div>
           <div class="login-source-skeleton h-2.5 w-[86%]"></div>
           <div class="login-source-skeleton h-2.5 w-[73%]"></div>
         </div>
-        <div id="loginDbState" class="text-[11px] text-slate-500 mt-1">Loading database state...</div>
+        <div id="loginDbState" class="text-[11px] text-slate-500 mt-1">$t_db_loading</div>
       </div>
     </div>
     <footer class="w-full bg-slate-100 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center px-4 py-6 max-w-[1440px] mx-auto relative z-10">
-      <span class="text-xs text-slate-600">© $current_year MTVL AI. Open source project.</span>
+      <span class="text-xs text-slate-600">© $current_year MTVL AI. $t_footer</span>
       <div class="flex gap-6 mt-4 md:mt-0">
-        <a class="text-xs text-slate-600 hover:underline hover:text-blue-900" href="/privacy">Privacy Policy</a>
-        <a class="text-xs text-slate-600 hover:underline hover:text-blue-900" href="/terms">Terms of Service</a>
+        <a class="text-xs text-slate-600 hover:underline hover:text-blue-900" href="/privacy">$t_privacy</a>
+        <a class="text-xs text-slate-600 hover:underline hover:text-blue-900" href="/terms">$t_terms</a>
       </div>
     </footer>
     <script>
+      const LOGIN_I18N = $landing_i18n_json;
       const state = { authEnabled: $auth_enabled };
 
       function byId(id) {
         return document.getElementById(id);
       }
 
-      function setLoginStatus(text, isError = false) {
+      function lt(key, vars) {
+        const raw = LOGIN_I18N[key];
+        if (!raw) return String(key || '');
+        let out = String(raw);
+        const bag = vars && typeof vars === 'object' ? vars : {};
+        Object.keys(bag).forEach((name) => {
+          out = out.split('{' + name + '}').join(String(bag[name]));
+        });
+        return out;
+      }
+
+      function lt(key, vars) {
         const el = byId('loginStatus');
         if (!el) return;
         el.textContent = String(text || '');
@@ -5359,8 +5024,8 @@ LOGIN_TEMPLATE = Template(
         if (requestPanel) requestPanel.classList.remove('hidden');
         if (resultPanel) resultPanel.classList.add('hidden');
         if (intro) intro.classList.remove('hidden');
-        if (introText) introText.textContent = 'Enter your email to receive a magic link.';
-        setLoginStatus('Use your email to receive a secure sign-in link.', false);
+        if (introText) introText.textContent = '$t_intro';
+        setLoginStatus('$t_status_hint', false);
       }
 
       function showLoginResultPanel({ title, message, hint = '', isError = false, devLink = '' }) {
@@ -5385,13 +5050,13 @@ LOGIN_TEMPLATE = Template(
           iconWrap.classList.toggle('text-red-700', isError);
         }
         if (icon) icon.textContent = isError ? 'error' : 'mark_email_read';
-        if (titleEl) titleEl.textContent = String(title || (isError ? 'Could not send email' : 'Check your email'));
+        if (titleEl) titleEl.textContent = String(title || (isError ? lt('error_email') : '$t_check_email'));
         if (messageEl) messageEl.textContent = String(message || '');
         if (hintEl) {
           hintEl.textContent = String(hint || '');
           hintEl.classList.toggle('hidden', !hint);
         }
-        if (tryAgain) tryAgain.classList.toggle('hidden', titleEl && titleEl.textContent === 'Verifying sign-in link');
+        if (tryAgain) tryAgain.classList.toggle('hidden', titleEl && titleEl.textContent === lt('verifying_title'));
         if (devWrap && devLinkEl) {
           if (!isError && devLink) {
             devLinkEl.href = String(devLink);
@@ -5409,7 +5074,7 @@ LOGIN_TEMPLATE = Template(
         if (requestPanel) requestPanel.classList.remove('hidden');
         if (resultPanel) resultPanel.classList.add('hidden');
         if (submitButton) submitButton.disabled = true;
-        setLoginStatus('Sending magic link...', false);
+        setLoginStatus(lt('sending'), false);
       }
 
       function clearLoginSendingState() {
@@ -5427,16 +5092,16 @@ LOGIN_TEMPLATE = Template(
 
       function formatRelativeIso(isoText) {
         const raw = String(isoText || '').trim();
-        if (!raw) return 'not yet synced';
+        if (!raw) return lt('not_synced');
         const ms = Date.parse(raw);
         if (!Number.isFinite(ms)) return raw;
         const deltaMinutes = Math.max(0, Math.floor((Date.now() - ms) / 60000));
-        if (deltaMinutes < 1) return 'just now';
-        if (deltaMinutes < 60) return deltaMinutes + 'm ago';
+        if (deltaMinutes < 1) return lt('time_just_now');
+        if (deltaMinutes < 60) return lt('time_minutes_ago', { n: String(deltaMinutes) });
         const deltaHours = Math.floor(deltaMinutes / 60);
-        if (deltaHours < 24) return deltaHours + 'h ago';
+        if (deltaHours < 24) return lt('time_hours_ago', { n: String(deltaHours) });
         const deltaDays = Math.floor(deltaHours / 24);
-        return deltaDays + 'd ago';
+        return lt('time_days_ago', { n: String(deltaDays) });
       }
 
       function escapeHtml(text) {
@@ -5453,7 +5118,7 @@ LOGIN_TEMPLATE = Template(
         if (!list) return;
         const safeRows = Array.isArray(rows) ? rows : [];
         if (!safeRows.length) {
-          list.innerHTML = '<div class="text-[11px] text-slate-500">No source metadata available yet.</div>';
+          list.innerHTML = '<div class="text-[11px] text-slate-500">' + lt('no_sources') + '</div>';
           return;
         }
         const denom = total > 0 ? total : 1;
@@ -5497,7 +5162,7 @@ LOGIN_TEMPLATE = Template(
           dot.classList.remove('bg-emerald-500', 'bg-amber-500');
           dot.classList.add(total > 0 ? 'bg-emerald-500' : 'bg-amber-500');
         }
-        if (dbState) dbState.textContent = total > 0 ? 'Database is online and query-ready.' : 'Database online, waiting for first ingestion.';
+        if (dbState) dbState.textContent = total > 0 ? lt('db_ready') : lt('db_waiting');
       }
 
       async function fetchAuthStatus() {
@@ -5527,7 +5192,7 @@ LOGIN_TEMPLATE = Template(
             + '<div class="login-source-skeleton h-2.5 w-[86%]"></div>'
             + '<div class="login-source-skeleton h-2.5 w-[73%]"></div>';
         }
-        if (dbState) dbState.textContent = 'Loading database state...';
+        if (dbState) dbState.textContent = '$t_db_loading';
         try {
           const resp = await fetch('/api/auth/login-metadata');
           const data = await resp.json();
@@ -5543,7 +5208,7 @@ LOGIN_TEMPLATE = Template(
         const emailInput = byId('loginEmail');
         const email = String(emailInput && emailInput.value ? emailInput.value : '').trim();
         if (!email) {
-          setLoginStatus('Email is required.', true);
+          setLoginStatus(lt('email_required', { label: '$t_email_label' }), true);
           return;
         }
         setLoginSendingState();
@@ -5551,28 +5216,24 @@ LOGIN_TEMPLATE = Template(
           const resp = await fetch('/api/auth/request-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email }),
+            body: JSON.stringify({ email, language: (document.documentElement.lang || 'en') }),
           });
           const data = await resp.json();
-          if (!resp.ok) throw new Error(data.error || 'Could not send magic link');
+          if (!resp.ok) throw new Error(data.error || lt('error'));
           const deliveryMode = String(data.delivery_mode || 'smtp');
           const devLink = data.magic_link ? String(data.magic_link) : '';
           showLoginResultPanel({
-            title: 'Check your email',
-            message: deliveryMode === 'smtp'
-              ? 'We sent a secure sign-in link to ' + email + '.'
-              : 'Your sign-in link is ready for ' + email + '.',
-            hint: deliveryMode === 'smtp'
-              ? 'Open your inbox and click the link to continue. It expires in 15 minutes. Check spam if you do not see it.'
-              : 'Use the dev link below to sign in during local testing.',
+            title: '$t_check_email',
+            message: deliveryMode === 'smtp' ? lt('sent_smtp', { email }) : lt('sent_dev', { email }),
+            hint: deliveryMode === 'smtp' ? lt('hint_smtp') : lt('hint_dev'),
             isError: false,
             devLink,
           });
         } catch (error) {
           showLoginResultPanel({
-            title: 'Could not send email',
+            title: lt('error_email'),
             message: String(error),
-            hint: 'Please try again. If the problem continues, contact your administrator.',
+            hint: lt('error_retry_hint'),
             isError: true,
           });
         } finally {
@@ -5585,8 +5246,8 @@ LOGIN_TEMPLATE = Template(
         const token = String(params.get('magic_token') || '').trim();
         if (!token) return;
         showLoginResultPanel({
-          title: 'Verifying sign-in link',
-          message: 'Please wait while we verify your magic link.',
+          title: lt('verifying_title'),
+          message: lt('verifying_message'),
           hint: '',
           isError: false,
         });
@@ -5603,9 +5264,9 @@ LOGIN_TEMPLATE = Template(
           window.location.replace(next.startsWith('/') ? next : '/app');
         } catch (error) {
           showLoginResultPanel({
-            title: 'Sign-in link invalid',
+            title: lt('invalid_title'),
             message: String(error),
-            hint: 'Request a new magic link to try again.',
+            hint: lt('invalid_hint'),
             isError: true,
           });
         }
@@ -5641,7 +5302,7 @@ LOGIN_TEMPLATE = Template(
 LEGAL_TEMPLATE = Template(
     """
 <!doctype html>
-<html lang="en">
+<html lang="$html_lang">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -5739,8 +5400,9 @@ LEGAL_TEMPLATE = Template(
       <div class="legal-card bg-white rounded-xl p-6 md:p-8">
         <div class="flex items-center justify-between gap-3 mb-6">
           <h1 class="text-2xl font-semibold text-slate-900">$page_title</h1>
-          <a href="/" class="text-sm text-blue-900 hover:underline">Back to home</a>
+          <a href="/" class="text-sm text-blue-900 hover:underline">$back_home</a>
         </div>
+        <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">$english_only_notice</div>
         <div class="doc-content text-sm leading-6 text-slate-700">
           $page_body
         </div>
@@ -5748,10 +5410,10 @@ LEGAL_TEMPLATE = Template(
     </main>
     <footer class="w-full border-t border-slate-200 bg-white px-6 py-4 text-xs text-slate-600">
       <div class="max-w-4xl mx-auto flex items-center justify-between gap-3">
-        <span>© $current_year MTVL AI. Open source project.</span>
+        <span>© $current_year MTVL AI. $footer_text</span>
         <div class="flex items-center gap-4">
-          <a href="/privacy" class="hover:underline">Privacy Policy</a>
-          <a href="/terms" class="hover:underline">Terms of Service</a>
+          <a href="/privacy" class="hover:underline">$privacy_link</a>
+          <a href="/terms" class="hover:underline">$terms_link</a>
         </div>
       </div>
     </footer>
@@ -6128,7 +5790,9 @@ def _paginate_rows(rows: list[dict[str, object]], *, limit: int, offset: int) ->
     return page_rows, total, end < total
 
 
-def _build_report_markdown(payload: dict[str, object]) -> str:
+def _build_report_markdown(payload: dict[str, object], *, locale: str = "en") -> str:
+    from als_intel.i18n import t as translate
+
     synthesis = payload.get("synthesis") if isinstance(payload.get("synthesis"), dict) else {}
     synthesis = synthesis if isinstance(synthesis, dict) else {}
 
@@ -6138,26 +5802,28 @@ def _build_report_markdown(payload: dict[str, object]) -> str:
     contradictions = str(synthesis.get("contradictions_summary") or "")
     next_step = str(synthesis.get("next_validation_step") or "")
     generated_seconds = float(payload.get("generated_seconds", 0.0) or 0.0)
+    safe_locale = locale if locale in {"en", "es"} else "en"
+    na = translate(safe_locale, "time_na")
 
     lines = [
-        "# Investigator Synthesis Report",
+        f"# {translate(safe_locale, 'report_md_title')}",
         "",
-        f"Generated seconds: {generated_seconds:.3f}",
+        f"{translate(safe_locale, 'report_md_generated')}: {generated_seconds:.3f}",
         "",
-        "## Direct Answer",
-        answer or "N/A",
+        f"## {translate(safe_locale, 'report_md_direct')}",
+        answer or na,
     ]
 
     if supporting_ids:
-      lines.extend(["", "## Supporting Evidence Nodes"])
+      lines.extend(["", f"## {translate(safe_locale, 'report_md_supporting')}"])
       for claim_id in supporting_ids:
         lines.append(f"- {claim_id}")
 
     if contradictions:
-      lines.extend(["", "## Contradictions and Uncertainty", contradictions])
+      lines.extend(["", f"## {translate(safe_locale, 'report_md_contradictions')}", contradictions])
 
     if next_step:
-      lines.extend(["", "## Next Validation Step", next_step])
+      lines.extend(["", f"## {translate(safe_locale, 'report_md_next_step')}", next_step])
 
     lines.append("")
 
@@ -6879,6 +6545,7 @@ def render_index_page(
     temperature: float,
     timeout_seconds: int,
     auth_enabled: bool,
+    initial_language: str = "en",
 ) -> bytes:
     html = PAGE_TEMPLATE.substitute(
         db_path=db_path,
@@ -6887,24 +6554,81 @@ def render_index_page(
         context_limit=context_limit,
         temperature=temperature,
         timeout_seconds=timeout_seconds,
-      auth_enabled=("true" if auth_enabled else "false"),
-      logo_html=render_inline_logo(height_px=28),
-      favicon_tag=favicon_link_tag(),
+        auth_enabled=("true" if auth_enabled else "false"),
+        initial_language=initial_language,
+        i18n_json=app_client_i18n_json(),
+        logo_html=render_inline_logo(height_px=28),
+        favicon_tag=favicon_link_tag(),
     )
     return html.encode("utf-8")
 
 
-def render_login_page(*, auth_enabled: bool) -> bytes:
-  html = LOGIN_TEMPLATE.substitute(
-    auth_enabled=("true" if auth_enabled else "false"),
-    current_year=str(datetime.now(timezone.utc).year),
-    logo_html=render_inline_logo(height_px=48),
-    favicon_tag=favicon_link_tag(),
-  )
-  return html.encode("utf-8")
+def _login_template_vars(*, auth_enabled: bool, locale: str) -> dict[str, str]:
+    strings = login_strings(locale)
+    common = common_strings(locale)
+    safe_locale = locale if locale in {"en", "es"} else "en"
+    lang_en_class = "text-blue-900 font-semibold" if safe_locale == "en" else "text-slate-600 hover:text-blue-900"
+    lang_es_class = "text-blue-900 font-semibold" if safe_locale == "es" else "text-slate-600 hover:text-blue-900"
+    landing_i18n = {
+        "time_na": common.get("time_na", "n/a"),
+        "time_just_now": common.get("time_just_now", "just now"),
+        "time_minutes_ago": common.get("time_minutes_ago", "{n}m ago"),
+        "time_hours_ago": common.get("time_hours_ago", "{n}h ago"),
+        "time_days_ago": common.get("time_days_ago", "{n}d ago"),
+        "last_sync": common.get("time_last_sync", "Last sync: {time}"),
+        "ready": translate(locale, "landing.database.ready"),
+        "waiting": translate(locale, "landing.database.waiting"),
+        "unavailable": translate(locale, "landing.database.unavailable"),
+        "no_sources": translate(locale, "landing.database.no_sources"),
+        "unknown_source": translate(locale, "landing.database.unknown_source"),
+    }
+    vars_out: dict[str, str] = {
+        "html_lang": safe_locale,
+        "auth_enabled": "true" if auth_enabled else "false",
+        "current_year": str(datetime.now(timezone.utc).year),
+        "logo_html": render_inline_logo(height_px=48),
+        "favicon_tag": favicon_link_tag(),
+        "lang_en_class": lang_en_class,
+        "lang_es_class": lang_es_class,
+        "landing_i18n_json": json.dumps(
+            {
+                **landing_i18n,
+                **strings,
+            },
+            ensure_ascii=True,
+        ),
+        "t_lang_label": common.get("lang_label", "Language"),
+        "t_lang_en": common.get("lang_en", "EN"),
+        "t_lang_es": common.get("lang_es", "ES"),
+    }
+    for key, value in strings.items():
+        vars_out["t_" + key.replace(".", "_")] = value
+    return vars_out
 
 
-def render_privacy_policy_page() -> bytes:
+def render_login_page(*, auth_enabled: bool, locale: str = "en") -> bytes:
+    html = LOGIN_TEMPLATE.substitute(**_login_template_vars(auth_enabled=auth_enabled, locale=locale))
+    return html.encode("utf-8")
+
+
+def _legal_template_vars(*, locale: str, page_title: str, page_body: str) -> dict[str, str]:
+    strings = legal_strings(locale)
+    safe_locale = locale if locale in {"en", "es"} else "en"
+    return {
+        "html_lang": safe_locale,
+        "page_title": page_title,
+        "page_body": page_body,
+        "current_year": str(datetime.now(timezone.utc).year),
+        "favicon_tag": favicon_link_tag(),
+        "back_home": strings.get("back_home", "Back to home"),
+        "english_only_notice": strings.get("english_only_notice", ""),
+        "footer_text": strings.get("footer", ""),
+        "privacy_link": strings.get("privacy_link", "Privacy Policy"),
+        "terms_link": strings.get("terms_link", "Terms of Service"),
+    }
+
+
+def render_privacy_policy_page(*, locale: str = "en") -> bytes:
   body = """
 <p>MTVL AI is an open source research project. This page describes our local deployment defaults and expected data handling behavior.</p>
 <h2 class="text-lg font-semibold text-slate-900 mt-6 mb-2">1. Data Collected</h2>
@@ -6927,16 +6651,18 @@ def render_privacy_policy_page() -> bytes:
   <li><a href="/docs/HUMAN_OVERSIGHT.md" class="text-blue-900 hover:underline">Human Oversight</a></li>
 </ul>
 """
+  strings = legal_strings(locale)
   html = LEGAL_TEMPLATE.substitute(
-    page_title="Privacy Policy",
-    page_body=body,
-    current_year=str(datetime.now(timezone.utc).year),
-    favicon_tag=favicon_link_tag(),
+      **_legal_template_vars(
+          locale=locale,
+          page_title=strings.get("privacy_title", "Privacy Policy"),
+          page_body=body,
+      )
   )
   return html.encode("utf-8")
 
 
-def render_terms_page() -> bytes:
+def render_terms_page(*, locale: str = "en") -> bytes:
   body = """
 <p>These Terms of Service govern use of MTVL AI, an open source project for biomedical evidence analysis.</p>
 <h2 class="text-lg font-semibold text-slate-900 mt-6 mb-2">1. Intended Use</h2>
@@ -6957,11 +6683,13 @@ def render_terms_page() -> bytes:
   <li><a href="/docs/HUMAN_OVERSIGHT.md" class="text-blue-900 hover:underline">Human Oversight</a></li>
 </ul>
 """
+  strings = legal_strings(locale)
   html = LEGAL_TEMPLATE.substitute(
-    page_title="Terms of Service",
-    page_body=body,
-    current_year=str(datetime.now(timezone.utc).year),
-    favicon_tag=favicon_link_tag(),
+      **_legal_template_vars(
+          locale=locale,
+          page_title=strings.get("terms_title", "Terms of Service"),
+          page_body=body,
+      )
   )
   return html.encode("utf-8")
 
@@ -6977,18 +6705,25 @@ GOVERNANCE_DOC_NAMES = (
 )
 
 
-def _governance_doc_nav(current_name: str) -> str:
+def _governance_doc_nav(current_name: str, *, locale: str) -> str:
+    strings = legal_strings(locale)
+    labels = {
+        "MISSION.md": strings.get("mission", "Mission"),
+        "ETHICS_AND_OVERSIGHT.md": strings.get("ethics", "Ethics and Oversight"),
+        "HUMAN_OVERSIGHT.md": strings.get("human_oversight", "Human Oversight"),
+    }
     links: list[str] = []
     for doc_name in GOVERNANCE_DOC_NAMES:
-        label = doc_name.replace(".md", "").replace("_", " ").title()
+        label = labels.get(doc_name, doc_name.replace(".md", "").replace("_", " ").title())
         active_class = " is-active" if doc_name == current_name else ""
         links.append(
             f'<a href="/docs/{doc_name}" class="doc-nav-link{active_class}">{label}</a>'
         )
-    return f'<nav class="doc-nav" aria-label="Governance documentation">{"".join(links)}</nav>'
+    nav_label = strings.get("docs_nav", "Governance docs")
+    return f'<nav class="doc-nav" aria-label="{nav_label}">{"".join(links)}</nav>'
 
 
-def render_governance_doc_page(doc_name: str) -> bytes | None:
+def render_governance_doc_page(doc_name: str, *, locale: str = "en") -> bytes | None:
     safe_name = Path(doc_name).name
     if not safe_name.endswith(".md"):
         return None
@@ -6998,14 +6733,11 @@ def render_governance_doc_page(doc_name: str) -> bytes | None:
     markdown = doc_path.read_text(encoding="utf-8")
     page_title = extract_markdown_title(markdown) or safe_name.replace(".md", "").replace("_", " ")
     body = (
-        _governance_doc_nav(safe_name)
+        _governance_doc_nav(safe_name, locale=locale)
         + render_markdown_to_html(markdown, skip_top_heading=True)
     )
     html = LEGAL_TEMPLATE.substitute(
-        page_title=page_title,
-        page_body=body,
-        current_year=str(datetime.now(timezone.utc).year),
-        favicon_tag=favicon_link_tag(),
+        **_legal_template_vars(locale=locale, page_title=page_title, page_body=body),
     )
     return html.encode("utf-8")
 
@@ -7098,6 +6830,23 @@ class ChatHandler(BaseHTTPRequestHandler):
         if k.strip() == key:
           return v.strip()
       return ""
+
+    def _resolve_request_locale(self, query_params: dict[str, list[str]]) -> tuple[str, bool]:
+        query_lang = str((query_params.get("lang") or [""])[0]).strip()
+        return resolve_locale(
+            accept_language=self.headers.get("Accept-Language"),
+            cookie_header=self.headers.get("Cookie"),
+            query_lang=query_lang,
+        )
+
+    def _send_html(self, body: bytes, *, locale: str, should_set_locale: bool) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        if should_set_locale:
+            self.send_header("Set-Cookie", locale_cookie_header(locale))
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _session_token(self, cookie_name: str) -> str:
       bearer = str(self.headers.get("Authorization", "")).strip()
@@ -7302,18 +7051,17 @@ class ChatHandler(BaseHTTPRequestHandler):
 
         if path in {"/", "/index.html"}:
             authenticated = auth_user is not None
+            locale, should_set_locale = self._resolve_request_locale(query_params)
             body = render_landing_page(
                 auth_enabled=bool(settings["auth_enabled"]),
                 authenticated=authenticated,
+                locale=locale,
             )
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_html(body, locale=locale, should_set_locale=should_set_locale)
             return
 
         if path in APP_PAGE_PATHS:
+            locale, should_set_locale = self._resolve_request_locale(query_params)
             body = render_index_page(
                 db_path=str(settings["db_path"]),
                 ollama_host=str(settings["ollama_host"]),
@@ -7322,12 +7070,9 @@ class ChatHandler(BaseHTTPRequestHandler):
                 temperature=float(settings["temperature"]),
                 timeout_seconds=int(settings["timeout_seconds"]),
                 auth_enabled=bool(settings["auth_enabled"]),
+                initial_language=locale,
             )
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_html(body, locale=locale, should_set_locale=should_set_locale)
             return
 
         if path == "/login":
@@ -7336,46 +7081,34 @@ class ChatHandler(BaseHTTPRequestHandler):
                 self.send_header("Location", APP_ROUTE)
                 self.end_headers()
                 return
-            body = render_login_page(auth_enabled=bool(settings["auth_enabled"]))
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            locale, should_set_locale = self._resolve_request_locale(query_params)
+            body = render_login_page(auth_enabled=bool(settings["auth_enabled"]), locale=locale)
+            self._send_html(body, locale=locale, should_set_locale=should_set_locale)
             return
 
         if path == "/privacy":
-          body = render_privacy_policy_page()
-          self.send_response(HTTPStatus.OK)
-          self.send_header("Content-Type", "text/html; charset=utf-8")
-          self.send_header("Content-Length", str(len(body)))
-          self.end_headers()
-          self.wfile.write(body)
+          locale, should_set_locale = self._resolve_request_locale(query_params)
+          body = render_privacy_policy_page(locale=locale)
+          self._send_html(body, locale=locale, should_set_locale=should_set_locale)
           return
 
         if path == "/terms":
-          body = render_terms_page()
-          self.send_response(HTTPStatus.OK)
-          self.send_header("Content-Type", "text/html; charset=utf-8")
-          self.send_header("Content-Length", str(len(body)))
-          self.end_headers()
-          self.wfile.write(body)
+          locale, should_set_locale = self._resolve_request_locale(query_params)
+          body = render_terms_page(locale=locale)
+          self._send_html(body, locale=locale, should_set_locale=should_set_locale)
           return
 
         if path.startswith("/docs/"):
             doc_name = unquote(path[len("/docs/"):]).lstrip("/")
-            body = render_governance_doc_page(doc_name)
+            locale, should_set_locale = self._resolve_request_locale(query_params)
+            body = render_governance_doc_page(doc_name, locale=locale)
             if body is None:
                 self.send_response(HTTPStatus.NOT_FOUND)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.end_headers()
                 self.wfile.write(b"Governance document not found")
                 return
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_html(body, locale=locale, should_set_locale=should_set_locale)
             return
 
         if path == "/healthz":
@@ -8042,7 +7775,19 @@ class ChatHandler(BaseHTTPRequestHandler):
                         _json_response(self, HTTPStatus.TOO_MANY_REQUESTS, {"error": message})
                         return
                     raise
-                delivery = auth_service.send_magic_link(email=normalized_email, magic_link=magic_link)
+                locale, _ = self._resolve_request_locale({})
+                payload_locale = str(payload.get("language", "")).strip()
+                if payload_locale:
+                    from als_intel.i18n import normalize_locale
+
+                    normalized_payload_locale = normalize_locale(payload_locale)
+                    if normalized_payload_locale is not None:
+                        locale = normalized_payload_locale
+                delivery = auth_service.send_magic_link(
+                    email=normalized_email,
+                    magic_link=magic_link,
+                    locale=locale,
+                )
                 if existing_user is not None:
                     store.log_user_activity(
                         user_id=str(existing_user["user_id"]),
@@ -8397,7 +8142,15 @@ class ChatHandler(BaseHTTPRequestHandler):
                 report = payload.get("report", {})
                 if not isinstance(report, dict):
                     raise ValueError("report must be an object")
-                markdown = _build_report_markdown(report)
+                locale, _ = self._resolve_request_locale({})
+                payload_locale = str(payload.get("language", "")).strip()
+                if payload_locale:
+                    from als_intel.i18n import normalize_locale
+
+                    normalized_payload_locale = normalize_locale(payload_locale)
+                    if normalized_payload_locale is not None:
+                        locale = normalized_payload_locale
+                markdown = _build_report_markdown(report, locale=locale)
                 _json_response(
                     self,
                     HTTPStatus.OK,
@@ -9001,7 +8754,8 @@ class ChatHandler(BaseHTTPRequestHandler):
                 store = self._store(str(settings["db_path"]))
                 run_row = store.get_investigation_run(user_id=str(current_user["user_id"]), run_id=run_id)
                 report = run_row.get("report") if isinstance(run_row.get("report"), dict) else {}
-                markdown = _build_report_markdown(report)
+                locale, _ = self._resolve_request_locale({})
+                markdown = _build_report_markdown(report, locale=locale)
                 delivery_id = f"dly_{int(time.time() * 1000)}_{int(time.perf_counter() * 1000) % 1000:03d}"
 
                 result_payload: dict[str, object] = {}
