@@ -447,9 +447,17 @@ export interface AppConfig {
   authEnabled: boolean
 }
 
+export const EVIDENCE_TYPE_OPTIONS = [
+  'observational',
+  'interventional',
+  'mechanistic',
+  'genetic',
+  'negative',
+] as const
+
 export const DEFAULT_FILTERS: EvidenceFilters = {
-  evidence_types: [],
+  evidence_types: ['observational', 'interventional'],
   date_window: 'all',
-  min_reliability: 0,
-  highlight_contradictions: false,
+  min_reliability: 0.6,
+  highlight_contradictions: true,
 }

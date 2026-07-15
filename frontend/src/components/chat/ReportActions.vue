@@ -1,8 +1,8 @@
 <template>
   <div class="flex flex-wrap gap-2">
-    <UiButton variant="secondary" size="sm" :disabled="!report" @click="save">{{ t('save_session') }}</UiButton>
-    <UiButton variant="secondary" size="sm" :disabled="!report" @click="downloadSummary">{{ t('export_summary') }}</UiButton>
-    <UiButton variant="secondary" size="sm" :disabled="!report" @click="copyCitations">{{ t('copy_citations') }}</UiButton>
+    <UiButton variant="secondary" size="sm" :disabled="!report" @click="save">{{ t('app.save_session') }}</UiButton>
+    <UiButton variant="secondary" size="sm" :disabled="!report" @click="downloadSummary">{{ t('app.export_summary') }}</UiButton>
+    <UiButton variant="secondary" size="sm" :disabled="!report" @click="copyCitations">{{ t('app.copy_citations') }}</UiButton>
     <UiNotice v-if="message" class="w-full" :type="noticeType" :message="message" />
   </div>
 </template>
@@ -36,7 +36,7 @@ async function save() {
     evidence_claim_ids: report.value.evidence_rows.map((row) => row.claim_id),
   })
   app.activeSessionId = sessionId
-  message.value = t('session_saved')
+  message.value = t('app.session_saved')
   noticeType.value = 'success'
 }
 
@@ -59,7 +59,7 @@ async function copyCitations() {
   if (!report.value) return
   const lines = report.value.evidence_rows.map((row) => `${row.claim_id} ${row.source_doi}`)
   await navigator.clipboard.writeText(lines.join('\n'))
-  message.value = t('copy_citations')
+  message.value = t('app.citations_copied')
   noticeType.value = 'success'
 }
 </script>

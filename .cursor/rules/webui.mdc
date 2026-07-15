@@ -40,4 +40,14 @@ DB status popover (`DbStatusPopover.vue`, `ManualSyncSourceRow.vue`): compact lo
 
 Manual sync backend (`manual_sync.py`): writes `manual_sync_events` audit rows; exposes `last_completion_status`, `last_completion_error`, and `audit_events` on status API; caps unbounded plan `max_results: 0` jobs via `ALS_MANUAL_SYNC_MAX_RESULTS` (default 250). Source breakdown returns top 5 sources + Others.
 
+## Assistant view
+
+Two-column layout at `lg+` when evidence panel is open: query/report (center) | `EvidenceSidebar` (right). Filters live inline in `AssistantView.vue` above the composer (no left column). Below `lg`, evidence nodes open via `EvidenceSidebarDrawer` toggle.
+
+**Evidence filters** (`FilterPanel.vue` in `AssistantView.vue`): toggle chips for evidence types (`app.evidence_types_to_include`); min reliability, publication date, and highlight contradictions share a compact aligned row on `md+`; changes apply immediately (no Apply button). Collapsible via filter icon button (`filter_list`) + `app.filtersCollapsed`. Ghost **Reset filters** (`app.reset_filters`) restores `DEFAULT_FILTERS` (observational + interventional, 60% reliability, contradictions on). Filters are sent on the next chat stream (`useChatStream.ts` → `filters: app.filters`).
+
+**Query / report** (`AssistantView.vue`, `StreamReport.vue`, `ReportActions.vue`): synthesis report and session actions appear only after first user message or loaded session. Session actions use `app.*` i18n keys; copy success uses `app.citations_copied`.
+
+**Evidence sidebar** (`EvidenceSidebar.vue`): collapsible via `UiDisclosure` + `app.evidenceCollapsed` (default open). When collapsed on `lg+`, the third grid column is removed so the query column expands; reopen via the **Evidence Nodes** button in `AssistantView.vue`. Idle hint before first query (`app.evidence_hint_idle`); empty hint when report has zero cited rows (`app.evidence_hint_empty`). Contradiction highlighting/sorting follows `app.filters.highlight_contradictions` in `EvidenceRow.vue` / `EvidenceList.vue`.
+
 Settings (`SettingsDrawer.vue`): editable section (language, temperature/timeout sliders with visible helper text); read-only section (model, host, context limit from `/api/status`). Shared form primitives: `UiInput`, `UiSelect`, `UiSliderField`. `status` store seeds `app.config` once from `/api/status` on first refresh.

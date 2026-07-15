@@ -10,7 +10,7 @@ export function normalizeLocale(value: string | null | undefined): 'en' | 'es' |
 }
 
 export function readStoredLocale(): 'en' | 'es' {
-  if (typeof window === 'undefined') return 'en'
+  if (typeof window === 'undefined' || typeof localStorage?.getItem !== 'function') return 'en'
   const fromStorage = normalizeLocale(localStorage.getItem(LOCALE_KEY))
   if (fromStorage) return fromStorage
   const match = document.cookie.match(new RegExp(`(?:^|; )${LOCALE_COOKIE}=([^;]*)`))

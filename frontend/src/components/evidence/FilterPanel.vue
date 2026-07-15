@@ -1,55 +1,95 @@
 <template>
-  <aside class="rounded-xl border border-slate-200 bg-white p-4">
-    <h2 class="mb-4 text-sm font-semibold text-slate-900">{{ t('app.filter_title') }}</h2>
-    <div class="space-y-4 text-sm">
-      <label class="block">
-        <span class="mb-1 block font-medium">{{ t('app.min_reliability') }}</span>
-        <input v-model.number="app.filters.min_reliability" type="range" min="0" max="1" step="0.05" class="w-full" />
-        <span class="text-xs text-slate-500">{{ app.filters.min_reliability.toFixed(2) }}</span>
-      </label>
-      <label class="block">
-        <span class="mb-1 block font-medium">{{ t('app.publication_date') }}</span>
-        <select v-model="app.filters.date_window" class="w-full rounded-lg border border-slate-300 px-3 py-2">
-          <option value="all">{{ t('app.date_window_all') }}</option>
-          <option value="last5">{{ t('app.date_window_last5') }}</option>
-          <option value="last10">{{ t('app.date_window_last10') }}</option>
-        </select>
-      </label>
-      <label class="flex items-center gap-2">
-        <input v-model="app.filters.highlight_contradictions" type="checkbox" />
-        <span>{{ t('app.highlight_contradictions') }}</span>
-      </label>
-      <div class="flex gap-2">
-        <UiButton variant="secondary" class="flex-1" @click="reset">{{ t('app.reset') }}</UiButton>
-        <UiButton class="flex-1" :loading="loading" @click="apply">{{ t('app.apply') }}</UiButton>
+  <div class="space-y-3 text-sm">
+    <div>
+      <span class="mb-2 block font-medium text-slate-700">{{ t('app.evidence_types_to_include') }}</span>
+      <div class="flex flex-wrap justify-start gap-2">
+        <button
+          v-for="type in EVIDENCE_TYPE_OPTIONS"
+          :key="type"
+          type="button"
+          class="rounded-full border px-3 py-1 text-xs font-medium transition-colors"
+          :class="
+            isTypeActive(type)
+              ? 'border-brand-primary bg-brand-primary text-white'
+              : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+          "
+          :aria-pressed="isTypeActive(type)"
+          @click="toggleType(type)"
+        >
+          {{ t(`app.evidence_type_${type}`) }}
+        </button>
       </div>
     </div>
-  </aside>
+
+    <div class="flex flex-col gap-3 md:grid md:grid-cols-[minmax(140px,200px)_minmax(140px,180px)_auto] md:grid-rows-[auto_auto] md:items-center md:gap-x-4 md:gap-y-1.5">
+      <span class="font-medium text-slate-700 md:col-start-1 md:row-start-1">
+        {{ t('app.min_reliability') }}
+      </span>
+      <span class="font-medium text-slate-700 md:col-start-2 md:row-start-1">
+        {{ t('app.publication_date') }}
+      </span>
+
+      <div class="flex items-center gap-2 md:col-start-1 md:row-start-2">
+        <input
+          v-model.number="app.filters.min_reliability"
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          class="h-1.5 min-w-0 flex-1 cursor-pointer accent-brand-primary"
+        />
+        <span class="w-8 shrink-0 text-right font-mono text-xs text-brand-primary">{{ reliabilityPercent }}%</span>
+      </div>
+
+      <select
+        v-model="app.filters.date_window"
+        class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm md:col-start-2 md:row-start-2"
+      >
+        <option value="all">{{ t('app.date_window_all') }}</option>
+        <option value="last5">{{ t('app.date_window_last5') }}</option>
+        <option value="last10">{{ t('app.date_window_last10') }}</option>
+      </select>
+
+      <label class="flex items-center gap-2 text-slate-700 md:col-start-3 md:row-start-2 md:self-center">
+        <input v-model="app.filters.highlight_contradictions" type="checkbox" class="accent-brand-primary" />
+        <span class="whitespace-nowrap">{{ t('app.highlight_contradictions') }}</span>
+      </label>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <UiButton variant="ghost" size="sm" @click="reset">{{ t('app.reset_filters') }}</UiButton>
+      <UiNotice v-if="notice" type="info" :message="notice" />
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { filterEvidence } from '@/api/chat'
 import UiButton from '@/components/ui/UiButton.vue'
+import UiNotice from '@/components/ui/UiNotice.vue'
 import { useAppStore } from '@/stores/app'
-import { DEFAULT_FILTERS } from '@/types/api'
+import { DEFAULT_FILTERS, EVIDENCE_TYPE_OPTIONS } from '@/types/api'
 
 const { t } = useI18n()
 const app = useAppStore()
-const loading = ref(false)
+const notice = ref('')
 
-function reset() {
-  app.filters = { ...DEFAULT_FILTERS }
+const reliabilityPercent = computed(() => Math.round(app.filters.min_reliability * 100))
+
+function isTypeActive(type: string) {
+  return app.filters.evidence_types.includes(type)
 }
 
-async function apply() {
-  loading.value = true
-  try {
-    const data = await filterEvidence(app.filters)
-    app.evidenceRows = data.rows
-  } finally {
-    loading.value = false
-  }
+function toggleType(type: string) {
+  const next = new Set(app.filters.evidence_types)
+  if (next.has(type)) next.delete(type)
+  else next.add(type)
+  app.filters.evidence_types = [...next]
+}
+
+function reset() {
+  app.filters = { ...DEFAULT_FILTERS, evidence_types: [...DEFAULT_FILTERS.evidence_types] }
+  notice.value = t('app.filters_reset')
 }
 </script>

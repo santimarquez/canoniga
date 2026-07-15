@@ -3,11 +3,10 @@
     <TopBar />
     <main class="mx-auto max-w-[1600px] px-4 pb-6 pt-4">
       <div class="grid gap-4" :class="gridClass">
-        <FilterPanel v-if="showAssistantPanels" class="hidden lg:block" />
         <section class="min-w-0">
           <RouterView />
         </section>
-        <EvidenceSidebar v-if="showAssistantPanels" class="hidden xl:block" />
+        <EvidenceSidebar v-if="showAssistantPanels && !app.evidenceCollapsed" class="hidden lg:block" />
       </div>
     </main>
     <SettingsDrawer />
@@ -23,7 +22,6 @@ import { computed, onMounted, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import ClaimDrawer from '@/components/evidence/ClaimDrawer.vue'
 import EvidenceSidebar from '@/components/evidence/EvidenceSidebar.vue'
-import FilterPanel from '@/components/evidence/FilterPanel.vue'
 import DbExplorerModal from '@/components/db/DbExplorerModal.vue'
 import ProfileDrawer from '@/components/auth/ProfileDrawer.vue'
 import SettingsDrawer from '@/components/auth/SettingsDrawer.vue'
@@ -45,11 +43,11 @@ useManualSync()
 
 const showAssistantPanels = computed(() => route.name === 'assistant')
 
-const gridClass = computed(() =>
-  showAssistantPanels.value
-    ? 'lg:grid-cols-[280px_minmax(0,1fr)_320px]'
-    : 'grid-cols-1',
-)
+const gridClass = computed(() => {
+  if (!showAssistantPanels.value) return 'grid-cols-1'
+  if (app.evidenceCollapsed) return 'lg:grid-cols-[minmax(0,1fr)]'
+  return 'lg:grid-cols-[minmax(0,1fr)_320px]'
+})
 
 onMounted(async () => {
   await status.refresh()

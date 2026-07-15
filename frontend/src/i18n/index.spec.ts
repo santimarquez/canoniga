@@ -27,6 +27,14 @@ describe('i18n message compiler', () => {
     expect(i18n.global.t('app.nav_assistant')).toBe('Assistant')
     expect(i18n.global.t('app.filter_title')).toBe('Evidence Filters')
   })
+
+  it('resolves session action labels', () => {
+    expect(i18n.global.t('app.save_session')).toBe('Save session')
+    expect(i18n.global.t('app.export_summary')).toBe('Export summary')
+    expect(i18n.global.t('app.copy_citations')).toBe('Copy citations')
+    expect(i18n.global.t('app.citations_copied')).toBe('Citations copied to clipboard.')
+    expect(i18n.global.t('app.session_saved')).toBe('Session saved to database.')
+  })
 })
 
 describe('formatCooldownRemaining', () => {

@@ -4,8 +4,8 @@
       <UiSpinner size="sm" />
       <span>{{ app.streamStatus }}</span>
     </div>
+    <h3 v-if="!content" class="text-sm font-semibold text-slate-900">{{ t('app.report_title') }}</h3>
     <div v-if="content" class="prose prose-sm max-w-none whitespace-pre-wrap text-slate-800">{{ content }}</div>
-    <p v-else class="text-sm text-slate-500">{{ t('app.report_placeholder') }}</p>
     <div v-if="report" class="mt-4 grid gap-2 text-xs text-slate-600 md:grid-cols-3">
       <span>{{ t('app.report_evidence_count', { count: report.evidence_count }) }}</span>
       <span>{{ t('app.report_model', { model: report.model }) }}</span>
