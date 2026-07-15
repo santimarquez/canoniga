@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { i18n } from '@/i18n'
-import { formatRelativeTime } from '@/i18n/time'
+import { formatCooldownRemaining, formatRelativeTime } from '@/i18n/time'
 
 describe('i18n message compiler', () => {
   it('renders email placeholders containing @ without syntax errors', () => {
@@ -26,6 +26,13 @@ describe('i18n message compiler', () => {
   it('resolves app-prefixed investigator labels', () => {
     expect(i18n.global.t('app.nav_assistant')).toBe('Assistant')
     expect(i18n.global.t('app.filter_title')).toBe('Evidence Filters')
+  })
+})
+
+describe('formatCooldownRemaining', () => {
+  it('rounds up to minutes without seconds', () => {
+    expect(formatCooldownRemaining(45)).toBe('1m')
+    expect(formatCooldownRemaining(3600)).toBe('1h')
   })
 })
 

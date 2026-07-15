@@ -353,7 +353,7 @@
   "sync_update_source": "Actualizar",
   "sync_sources_title": "Fuentes actualizables",
   "sync_helper": "Actualiza la evidencia para todos los usuarios.",
-  "sync_cooldown": "Proxima actualizacion manual disponible en {time}.",
+  "sync_cooldown": "Ya esta al dia",
   "sync_in_progress_all": "Actualizando todas las fuentes ({done}/{total})...",
   "sync_in_progress_one": "Actualizando {source}...",
   "sync_started": "Actualizacion de fuentes iniciada.",

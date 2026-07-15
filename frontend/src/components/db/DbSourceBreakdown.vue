@@ -6,13 +6,14 @@
       <div class="h-2 flex-1 rounded bg-slate-200">
         <div class="h-2 rounded bg-brand-primary" :style="{ width: barWidth(row.articles) }" />
       </div>
-      <span class="w-10 text-right tabular-nums text-slate-500">{{ row.articles }}</span>
+      <span class="w-10 text-right tabular-nums text-slate-500">{{ formatCompactCount(row.articles) }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { formatCompactCount } from '@/i18n/numbers'
 import type { SourceBreakdownRow } from '@/types/api'
 
 const props = withDefaults(

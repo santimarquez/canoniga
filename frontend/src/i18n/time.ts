@@ -12,3 +12,17 @@ export function formatRelativeTime(isoText: string | null | undefined): string {
   if (hours < 48) return t('common.time_hours_ago', { n: hours })
   return t('common.time_days_ago', { n: Math.round(hours / 24) })
 }
+
+export function formatCooldownRemaining(seconds: number): string {
+  const t = i18n.global.t
+  const total = Math.max(0, Number(seconds) || 0)
+  if (total <= 0) return t('common.time_just_now')
+
+  const minutes = Math.max(1, Math.ceil(total / 60))
+  if (minutes < 60) return t('common.time_minutes_in', { n: minutes })
+
+  const hours = Math.max(1, Math.ceil(minutes / 60))
+  if (hours < 48) return t('common.time_hours_in', { n: hours })
+
+  return t('common.time_days_in', { n: Math.max(1, Math.ceil(hours / 24)) })
+}

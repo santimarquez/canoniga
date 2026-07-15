@@ -353,7 +353,7 @@
   "sync_update_source": "Update",
   "sync_sources_title": "Updatable sources",
   "sync_helper": "Updates evidence for all users.",
-  "sync_cooldown": "Next manual update available in {time}.",
+  "sync_cooldown": "Already up-to-date",
   "sync_in_progress_all": "Updating all sources ({done}/{total})...",
   "sync_in_progress_one": "Updating {source}...",
   "sync_started": "Source update started.",

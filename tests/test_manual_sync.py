@@ -143,6 +143,7 @@ def test_failed_manual_sync_does_not_apply_cooldown(tmp_path: Path, monkeypatch:
         return {
             "status": "failed",
             "source": str(job["source"]),
+            "run_id": 99,
             "inserted": 0,
             "updated": 0,
             "unchanged": 0,
@@ -169,6 +170,12 @@ def test_failed_manual_sync_does_not_apply_cooldown(tmp_path: Path, monkeypatch:
     assert cooldown_remaining_seconds(store, "pubmed") == 0
     pubmed = next(row for row in status["sources"] if row["source"] == "pubmed")
     assert pubmed["can_trigger"] is True
+    assert status["last_completion_status"] == "failed"
+    assert "boom" in str(status["last_completion_error"])
+    audit_events = status.get("audit_events")
+    assert isinstance(audit_events, list)
+    assert audit_events
+    assert audit_events[0]["status"] == "failed"
 
 
 def test_start_manual_sync_rejects_during_cooldown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -220,7 +227,94 @@ def test_start_manual_sync_starts_background_job(tmp_path: Path, monkeypatch: py
             break
         time.sleep(0.05)
     assert status["in_progress"] is False
+    assert status["last_completion_status"] == "success"
     assert store.manual_sync_last_successful_at("pubmed") is not None
+    audit_events = status.get("audit_events")
+    assert isinstance(audit_events, list)
+    assert audit_events
+    assert audit_events[0]["status"] == "success"
+
+
+def test_manual_sync_caps_unbounded_plan_max_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import als_intel.manual_sync as manual_sync_module
+
+    captured: list[int] = []
+
+    def _capture_job(db_path: str, job: dict[str, object]) -> dict[str, object]:
+        captured.append(manual_sync_module._resolve_manual_sync_max_results(job))
+        return {
+            "status": "ok",
+            "source": str(job["source"]),
+            "run_id": 1,
+            "inserted": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "notes": "",
+        }
+
+    monkeypatch.setenv("ALS_MANUAL_SYNC_MAX_RESULTS", "125")
+    monkeypatch.setattr("als_intel.manual_sync._run_single_job", _capture_job)
+    plan_path = tmp_path / "plan.json"
+    plan_path.write_text('[{"source":"fda_labels","query":"als","max_results":0}]', encoding="utf-8")
+    db_path = tmp_path / "als.sqlite"
+    start_manual_sync(
+        db_path=str(db_path),
+        scope="fda_labels",
+        triggered_by="usr_test",
+        plan_path=str(plan_path),
+    )
+
+    import time
+
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        status = get_manual_sync_status(db_path=str(db_path), plan_path=str(plan_path))
+        if not status["in_progress"]:
+            break
+        time.sleep(0.05)
+
+    assert captured == [125]
+
+
+def test_evidence_reads_continue_while_sync_run_is_running(tmp_path: Path) -> None:
+    db_path = tmp_path / "als.sqlite"
+    store = EvidenceStore(db_path)
+    store.init_db()
+    from als_intel.models import EvidenceRecord
+
+    store.upsert_evidence(
+        EvidenceRecord(
+            claim_id="C1",
+            claim_text="test",
+            disease="ALS",
+            entity="entity",
+            relation="modulates",
+            outcome="outcome",
+            effect_direction="supports",
+            study_type="observational",
+            sample_size=10,
+            endpoint_validity=0.5,
+            replication_count=0,
+            peer_reviewed=True,
+            year=2024,
+            source_title="title",
+            source_doi="10.1/c1",
+        ),
+        score_breakdown={
+            "study": 0.1,
+            "sample": 0.1,
+            "replication": 0.1,
+            "peer_review": 0.1,
+            "endpoint": 0.1,
+            "source": 0.1,
+            "extraction": 0.1,
+            "total": 0.5,
+        },
+        source_score=0.5,
+    )
+    store.start_sync_run(source_name="fda_labels", query="als")
+    rows = store.all_evidence()
+    assert len(rows) == 1
 
 
 def test_start_manual_sync_rejects_unknown_source(tmp_path: Path) -> None:

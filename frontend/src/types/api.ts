@@ -53,6 +53,7 @@ export interface ManualSyncSource {
   last_successful_at: string
   last_attempt_at: string
   last_attempt_status: string
+  last_attempt_notes?: string
   last_manual_sync_at: string
   sync_status: string
   failure_count: number
@@ -78,10 +79,27 @@ export interface ManualSyncSnapshot {
   sources: ManualSyncSource[]
 }
 
+export interface ManualSyncAuditEvent {
+  id: number
+  scope: string
+  triggered_by: string
+  started_at: string
+  ended_at: string
+  status: string
+  error: string
+  run_ids: number[]
+  notes: string
+}
+
 export interface ManualSyncStatusResponse extends ManualSyncSnapshot {
   reconciled_stale_runs?: number
   latest_sync_at?: string | null
   error?: string | null
+  last_completion_status?: 'success' | 'failed' | null
+  last_completion_error?: string | null
+  last_completion_at?: string | null
+  last_completion_scope?: string | null
+  audit_events?: ManualSyncAuditEvent[]
 }
 
 export interface StatusResponse {

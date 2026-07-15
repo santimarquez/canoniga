@@ -34,6 +34,10 @@ make frontend-dev   # Vite on :5173, proxies /api to :8000
 
 Open `http://localhost:5173/` in dev (not `/app-assets/`). Production builds use `base: /app-assets/` and are served from `assets/dist/`.
 
-Database explorer (`DbExplorerModal.vue`): fixed-height modal, infinite-scroll list, in-modal node detail with source links, reliability breakdowns, and dotted-underline field helpers (`UiFieldHelp`).
+Database explorer (`DbExplorerModal.vue`): fixed-height modal, infinite-scroll list, in-modal node detail with source links, reliability breakdowns, and dotted-underline field helpers (`UiFieldHelp`). Result counts use `formatCompactCount()` from `frontend/src/i18n/numbers.ts`.
+
+DB status popover (`DbStatusPopover.vue`, `ManualSyncSourceRow.vue`): compact locale-aware counts and relative timestamps (`formatRelativeTime`, `formatCompactCount`); sync progress shows percent and contextual title; navbar badge shows a spinning sync icon while updating; cooldown button reads "Already up-to-date". Success/error toasts use `last_completion_status` from `/api/sync/manual/status` (not merely "sync stopped").
+
+Manual sync backend (`manual_sync.py`): writes `manual_sync_events` audit rows; exposes `last_completion_status`, `last_completion_error`, and `audit_events` on status API; caps unbounded plan `max_results: 0` jobs via `ALS_MANUAL_SYNC_MAX_RESULTS` (default 250). Source breakdown returns top 5 sources + Others.
 
 Settings (`SettingsDrawer.vue`): editable section (language, temperature/timeout sliders with visible helper text); read-only section (model, host, context limit from `/api/status`). Shared form primitives: `UiInput`, `UiSelect`, `UiSliderField`. `status` store seeds `app.config` once from `/api/status` on first refresh.

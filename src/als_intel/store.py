@@ -333,8 +333,23 @@ CREATE TABLE IF NOT EXISTS manual_sync_source_durations (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS manual_sync_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL,
+    triggered_by TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    error TEXT NOT NULL DEFAULT '',
+    run_ids_json TEXT NOT NULL DEFAULT '[]',
+    notes TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_manual_sync_source_durations_source
 ON manual_sync_source_durations (source_name);
+
+CREATE INDEX IF NOT EXISTS idx_manual_sync_events_scope_started
+ON manual_sync_events (scope, started_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_evidence_entity_direction_claim_reliability
 ON evidence (entity, effect_direction, claim_id, reliability_score DESC);
@@ -3219,10 +3234,10 @@ class EvidenceStore:
         if int(total_rows) > seen_total:
             output.append({"source": "unmapped", "articles": int(total_rows) - seen_total})
         output.sort(key=lambda row: (-int(row["articles"]), str(row["source"]).lower()))
-        if len(output) <= 4:
+        if len(output) <= 5:
             return output
-        top_sources = output[:4]
-        others_total = sum(int(row["articles"]) for row in output[4:])
+        top_sources = output[:5]
+        others_total = sum(int(row["articles"]) for row in output[5:])
         if others_total > 0:
             top_sources.append({"source": "Others", "articles": others_total})
         return top_sources
@@ -3264,6 +3279,16 @@ class EvidenceStore:
             return 0
         now_iso = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
+            stale_rows = conn.execute(
+                """
+                SELECT id, source_name, started_at
+                FROM sync_runs
+                WHERE status = 'running'
+                ORDER BY started_at ASC
+                """
+            ).fetchall()
+            if not stale_rows:
+                return 0
             cur = conn.execute(
                 """
                 UPDATE sync_runs
@@ -3278,7 +3303,19 @@ class EvidenceStore:
                 (now_iso,),
             )
             conn.commit()
-            return int(cur.rowcount or 0)
+            reconciled = int(cur.rowcount or 0)
+        if reconciled > 0:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "reconciled_stale_sync_runs count=%s runs=%s",
+                reconciled,
+                [
+                    {"id": int(row[0]), "source": str(row[1]), "started_at": str(row[2])}
+                    for row in stale_rows
+                ],
+            )
+        return reconciled
 
     def record_manual_sync_success(self, scope: str, *, completed_at: str | None = None) -> None:
         normalized_scope = str(scope).strip().lower()
@@ -3297,6 +3334,82 @@ class EvidenceStore:
                 (normalized_scope, now_iso, now_iso),
             )
             conn.commit()
+
+    def start_manual_sync_event(self, *, scope: str, triggered_by: str) -> int:
+        normalized_scope = str(scope).strip().lower()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO manual_sync_events (scope, triggered_by, started_at, status)
+                VALUES (?, ?, ?, 'running')
+                """,
+                (normalized_scope, str(triggered_by or "").strip(), now_iso),
+            )
+            conn.commit()
+            return int(cur.lastrowid)
+
+    def finish_manual_sync_event(
+        self,
+        event_id: int,
+        *,
+        status: str,
+        error: str = "",
+        run_ids: list[int] | None = None,
+        notes: str = "",
+    ) -> None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        normalized_status = str(status or "failed").strip().lower() or "failed"
+        run_ids_json = json.dumps([int(value) for value in (run_ids or [])], ensure_ascii=True)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE manual_sync_events
+                SET ended_at = ?, status = ?, error = ?, run_ids_json = ?, notes = ?
+                WHERE id = ?
+                """,
+                (now_iso, normalized_status, str(error or ""), run_ids_json, str(notes or ""), int(event_id)),
+            )
+            conn.commit()
+
+    def list_manual_sync_events(self, *, scope: str | None = None, limit: int = 20) -> list[dict[str, object]]:
+        safe_limit = max(1, min(int(limit or 20), 200))
+        query = """
+            SELECT id, scope, triggered_by, started_at, ended_at, status, error, run_ids_json, notes
+            FROM manual_sync_events
+        """
+        params: tuple[object, ...]
+        if scope:
+            query += " WHERE scope = ?"
+            params = (str(scope).strip().lower(), safe_limit)
+        else:
+            params = (safe_limit,)
+        query += " ORDER BY started_at DESC, id DESC LIMIT ?"
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        output: list[dict[str, object]] = []
+        for row in rows:
+            run_ids_raw = row[7]
+            try:
+                run_ids = json.loads(str(run_ids_raw or "[]"))
+            except json.JSONDecodeError:
+                run_ids = []
+            if not isinstance(run_ids, list):
+                run_ids = []
+            output.append(
+                {
+                    "id": int(row[0]),
+                    "scope": str(row[1] or ""),
+                    "triggered_by": str(row[2] or ""),
+                    "started_at": str(row[3] or ""),
+                    "ended_at": str(row[4] or ""),
+                    "status": str(row[5] or ""),
+                    "error": str(row[6] or ""),
+                    "run_ids": [int(value) for value in run_ids if str(value).strip().isdigit()],
+                    "notes": str(row[8] or ""),
+                }
+            )
+        return output
 
     def manual_sync_last_successful_at(self, scope: str) -> str | None:
         normalized_scope = str(scope).strip().lower()

@@ -1580,6 +1580,11 @@ class ChatHandler(BaseHTTPRequestHandler):
                             "estimated_remaining_seconds": manual_sync.get("estimated_remaining_seconds"),
                             "estimated_completion_at": manual_sync.get("estimated_completion_at"),
                             "sources": manual_sync.get("sources"),
+                            "error": manual_sync.get("error"),
+                            "last_completion_status": manual_sync.get("last_completion_status"),
+                            "last_completion_error": manual_sync.get("last_completion_error"),
+                            "last_completion_at": manual_sync.get("last_completion_at"),
+                            "last_completion_scope": manual_sync.get("last_completion_scope"),
                         },
                     },
                 )

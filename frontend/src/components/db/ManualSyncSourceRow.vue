@@ -17,6 +17,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UiButton from '@/components/ui/UiButton.vue'
+import { formatRelativeTime } from '@/i18n/time'
 import type { ManualSyncSource } from '@/types/api'
 
 const props = defineProps<{ source: ManualSyncSource }>()
@@ -25,22 +26,24 @@ defineEmits<{ trigger: [source: string] }>()
 const { t } = useI18n()
 const loading = ref(false)
 
+const onCooldown = computed(() => props.source.cooldown_remaining_seconds > 0)
+
 const updatedLabel = computed(() => {
   const stamp = props.source.last_successful_at || props.source.last_attempt_at
   if (!stamp) return t('app.sync_never')
-  return t('app.sync_last_success', { time: stamp })
+  return t('app.sync_last_success', { time: formatRelativeTime(stamp) })
 })
 
 const buttonLabel = computed(() => {
-  if (props.source.cooldown_remaining_seconds > 0) {
-    return t('app.sync_cooldown', { time: `${props.source.cooldown_remaining_seconds}s` })
+  if (onCooldown.value) {
+    return t('app.sync_cooldown')
   }
   return t('app.sync_update_source')
 })
 
 const failedLabel = computed(() => {
-  const failedTime = props.source.last_attempt_at || ''
-  const okTime = props.source.last_successful_at || ''
+  const failedTime = formatRelativeTime(props.source.last_attempt_at)
+  const okTime = formatRelativeTime(props.source.last_successful_at)
   if (props.source.last_successful_at) {
     return t('app.sync_last_failed_with_ok', { failed_time: failedTime, ok_time: okTime })
   }

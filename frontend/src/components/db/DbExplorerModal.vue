@@ -64,7 +64,7 @@
       </div>
 
       <p class="shrink-0 text-xs text-slate-500">
-        {{ t('app.db_results_count', { shown: rows.length, total }) }}
+        {{ resultsCountLabel }}
       </p>
       </div>
 
@@ -79,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { searchDatabaseNodes } from '@/api/app'
 import ClaimLineagePanel from '@/components/evidence/ClaimLineagePanel.vue'
@@ -87,6 +87,7 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiModal from '@/components/ui/UiModal.vue'
 import UiSpinner from '@/components/ui/UiSpinner.vue'
+import { formatCompactCount } from '@/i18n/numbers'
 import { useAppStore } from '@/stores/app'
 import type { DatabaseNodeRow } from '@/types/api'
 
@@ -108,6 +109,13 @@ const loading = ref(false)
 const loadingMore = ref(false)
 const listRef = ref<HTMLElement | null>(null)
 const listScrollTop = ref(0)
+
+const resultsCountLabel = computed(() =>
+  t('app.db_results_count', {
+    shown: formatCompactCount(rows.value.length),
+    total: formatCompactCount(total.value),
+  }),
+)
 
 async function fetchPage(reset: boolean) {
   if (reset) {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -1139,9 +1140,12 @@ def fetch_fda_labels(query: str, max_results: int = 20, from_file: str | None = 
     page_size = 100
     skip = 0
     seen_ids: set[str] = set()
+    max_skip = max(0, int(os.getenv("ALS_FDA_LABELS_MAX_SKIP", "25000")))
 
     while True:
         if target is not None and len(docs) >= target:
+            break
+        if skip > max_skip:
             break
         url = (
             "https://api.fda.gov/drug/label.json?"

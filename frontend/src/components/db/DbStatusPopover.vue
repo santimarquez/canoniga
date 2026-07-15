@@ -10,6 +10,16 @@
       >
         <span class="material-symbols-outlined text-[20px]">database</span>
         <span
+          v-if="active"
+          class="absolute right-1 top-1 flex size-2.5 items-center justify-center rounded-full bg-white ring-2 ring-white"
+          aria-hidden="true"
+        >
+          <span
+            class="material-symbols-outlined animate-spin origin-center scale-[0.48] text-[10px] leading-none text-orange-500 [font-variation-settings:'FILL'_0,'wght'_400,'GRAD'_0,'opsz'_20]"
+          >sync</span>
+        </span>
+        <span
+          v-else
           class="absolute right-1 top-1 size-2.5 rounded-full ring-2 ring-white"
           :class="statusDotClass"
         />
@@ -23,7 +33,7 @@
           <p class="mt-1 text-xs text-slate-600">{{ statusTitle }}</p>
         </div>
         <div class="text-right">
-          <p class="text-lg font-semibold text-brand-primary">{{ recordsTotal }}</p>
+          <p class="text-lg font-semibold text-brand-primary">{{ recordsTotalLabel }}</p>
           <p class="text-[11px] text-slate-500">{{ t('app.db_popover_total_label') }}</p>
         </div>
       </div>
@@ -42,7 +52,10 @@
       <UiNotice v-if="flashMessage" :type="status.flash?.type || 'info'" :message="flashMessage" />
 
       <div v-if="active" class="space-y-2 border-t border-slate-100 pt-3">
-        <p class="text-xs font-medium text-slate-700">{{ t('app.sync_progress_title') }}</p>
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs font-medium text-slate-700">{{ progressTitle }}</p>
+          <span class="shrink-0 text-xs font-semibold tabular-nums text-brand-primary">{{ progressPercent }}%</span>
+        </div>
         <UiProgress :value="progressPercent" />
         <p class="text-xs text-slate-600">{{ progressDetail }}</p>
         <p v-if="etaLabel" class="text-xs text-slate-500">{{ etaLabel }}</p>
@@ -78,6 +91,7 @@ import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPopover from '@/components/ui/UiPopover.vue'
 import UiProgress from '@/components/ui/UiProgress.vue'
 import { formatRelativeTime } from '@/i18n/time'
+import { formatCompactCount } from '@/i18n/numbers'
 import { useAppStore } from '@/stores/app'
 import { useStatusStore } from '@/stores/status'
 
@@ -93,6 +107,7 @@ const progressPercent = computed(() => manualSync.value?.progress_percent ?? 0)
 const syncError = computed(() => manualSync.value?.error || '')
 const sourceBreakdown = computed(() => status.snapshot?.source_breakdown ?? [])
 const recordsTotal = computed(() => status.snapshot?.records_total ?? 0)
+const recordsTotalLabel = computed(() => formatCompactCount(recordsTotal.value))
 
 const statusTitle = computed(() => {
   if (active.value) return t('app.in_progress')
@@ -115,11 +130,35 @@ const lastSyncLabel = computed(() => {
   return stamp ? formatRelativeTime(stamp) : ''
 })
 
+const progressTitle = computed(() => {
+  const ms = manualSync.value
+  if (!ms) return t('app.sync_progress_title')
+  const scope = String(ms.current_scope || '').toLowerCase()
+  const total = ms.total_sources ?? 0
+  const done = ms.completed_sources ?? 0
+  if (scope === 'all' || total > 1) {
+    return t('app.sync_in_progress_all', { done, total })
+  }
+  const sourceKey = ms.current_source || scope
+  const row = ms.sources?.find((item) => item.source === sourceKey)
+  const displayName = row?.display_name || sourceKey
+  if (displayName) {
+    return t('app.sync_in_progress_one', { source: displayName })
+  }
+  return t('app.sync_progress_title')
+})
+
 const progressDetail = computed(() => {
-  const done = manualSync.value?.completed_sources ?? 0
-  const total = manualSync.value?.total_sources ?? 0
-  const source = manualSync.value?.current_source || manualSync.value?.current_scope || ''
-  return t('app.sync_progress_step', { done, total, source })
+  const ms = manualSync.value
+  const done = ms?.completed_sources ?? 0
+  const total = ms?.total_sources ?? 0
+  const sourceKey = ms?.current_source || ms?.current_scope || ''
+  const row = ms?.sources?.find((item) => item.source === sourceKey)
+  const displayName = row?.display_name || sourceKey
+  if (total <= 1 && displayName) {
+    return t('app.sync_progress_current', { source: displayName })
+  }
+  return t('app.sync_progress_step', { done, total, source: displayName })
 })
 
 const etaLabel = computed(() => {

@@ -27,21 +27,22 @@ def _record(claim_id: str) -> EvidenceRecord:
     )
 
 
-def test_source_breakdown_top_four_plus_others(tmp_path: Path) -> None:
+def test_source_breakdown_top_five_plus_others(tmp_path: Path) -> None:
     db_path = tmp_path / "source_breakdown.sqlite"
     store = EvidenceStore(db_path)
     store.init_db()
 
-    # Create 12 evidence rows and map 11 of them to 5 named sources.
+    # Create 13 evidence rows and map 12 of them to 6 named sources.
     source_map = {
         "pubmed": ["C1", "C2", "C3", "C4", "C5"],
         "ctgov": ["C6", "C7", "C8"],
         "cochrane": ["C9", "C10"],
         "geo": ["C11"],
-        "who": ["C12"],
+        "pdb": ["C12"],
+        "who": ["C13"],
     }
 
-    for claim_id in [f"C{i}" for i in range(1, 13)]:
+    for claim_id in [f"C{i}" for i in range(1, 14)]:
         store.upsert_evidence(
             _record(claim_id),
             score_breakdown={
@@ -59,7 +60,7 @@ def test_source_breakdown_top_four_plus_others(tmp_path: Path) -> None:
 
     for source_name, claim_ids in source_map.items():
         for claim_id in claim_ids:
-            if claim_id == "C12":
+            if claim_id == "C13":
                 # Leave one evidence row without metadata to validate unmapped -> Others.
                 continue
             store.upsert_evidence_source_metadata(
@@ -83,5 +84,6 @@ def test_source_breakdown_top_four_plus_others(tmp_path: Path) -> None:
         {"source": "ClinicalTrials.gov", "articles": 3},
         {"source": "cochrane", "articles": 2},
         {"source": "GEO (Gene Expression Omnibus)", "articles": 1},
+        {"source": "pdb", "articles": 1},
         {"source": "Others", "articles": 1},
     ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,9 @@ DEFAULT_SYNC_PLAN_PATH = "config/sync_plan.all_public_sources.json"
 DEFAULT_COOLDOWN_HOURS = 6
 MANUAL_SYNC_SCOPE_ALL = "all"
 DEFAULT_SOURCE_DURATION_SECONDS = 120.0
+DEFAULT_MANUAL_SYNC_MAX_RESULTS = 250
+
+logger = logging.getLogger(__name__)
 
 _MANUAL_SYNC_LOCK = threading.Lock()
 _MANUAL_SYNC_STATE: dict[str, Any] = {
@@ -27,6 +31,10 @@ _MANUAL_SYNC_STATE: dict[str, Any] = {
     "total_sources": 0,
     "observed_durations": {},
     "error": None,
+    "completion_status": None,
+    "completion_error": None,
+    "completion_at": None,
+    "event_id": None,
 }
 
 
@@ -121,13 +129,29 @@ def _source_sync_status_label(activity: dict[str, object]) -> str:
     last_successful_at = str(activity.get("last_successful_at", "") or "").strip()
     last_attempt_at = str(activity.get("last_attempt_at", "") or "").strip()
     last_attempt_status = str(activity.get("last_attempt_status", "") or "").strip().lower()
+    success_ts = _parse_iso_timestamp(last_successful_at)
+    attempt_ts = _parse_iso_timestamp(last_attempt_at)
     if last_attempt_status == "failed":
+        if success_ts and attempt_ts and success_ts >= attempt_ts:
+            return "ok"
         return "failed"
     if last_successful_at:
         return "ok"
     if last_attempt_at:
         return last_attempt_status or "unknown"
     return "never"
+
+
+def _resolve_manual_sync_max_results(job: dict[str, object]) -> int:
+    raw = int(job.get("max_results", 20) or 0)
+    if raw > 0:
+        return raw
+    configured = str(os.getenv("ALS_MANUAL_SYNC_MAX_RESULTS", str(DEFAULT_MANUAL_SYNC_MAX_RESULTS))).strip()
+    try:
+        cap = int(configured)
+    except ValueError:
+        cap = DEFAULT_MANUAL_SYNC_MAX_RESULTS
+    return max(1, cap)
 
 
 def load_updatable_sources(*, db_path: str, plan_path: str | None = None) -> list[dict[str, object]]:
@@ -155,6 +179,7 @@ def load_updatable_sources(*, db_path: str, plan_path: str | None = None) -> lis
                 "last_successful_at": str(activity.get("last_successful_at", "") or ""),
                 "last_attempt_at": str(activity.get("last_attempt_at", "") or ""),
                 "last_attempt_status": str(activity.get("last_attempt_status", "") or ""),
+                "last_attempt_notes": str(activity.get("last_attempt_notes", "") or ""),
                 "last_manual_sync_at": str(activity.get("last_manual_sync_at", "") or ""),
                 "sync_status": _source_sync_status_label(activity),
                 "failure_count": int(sync_state.get("failure_count", 0) or 0),
@@ -329,6 +354,11 @@ def get_manual_sync_status(*, db_path: str, plan_path: str | None = None) -> dic
         "latest_sync_at": store.latest_sync_timestamp(),
         "sources": load_updatable_sources(db_path=db_path, plan_path=plan_path),
         "error": state_snapshot.get("error"),
+        "last_completion_status": state_snapshot.get("completion_status"),
+        "last_completion_error": state_snapshot.get("completion_error"),
+        "last_completion_at": state_snapshot.get("completion_at"),
+        "last_completion_scope": state_snapshot.get("scope"),
+        "audit_events": store.list_manual_sync_events(limit=5),
     }
 
 
@@ -352,7 +382,7 @@ def _run_single_job(db_path: str, job: dict[str, object]) -> dict[str, object]:
         db_path=db_path,
         source=str(job["source"]),
         query=str(job["query"]),
-        max_results=int(job.get("max_results", 20)),
+        max_results=_resolve_manual_sync_max_results(job),
         from_file=str(job["from_file"]) if job.get("from_file") else None,
         extractor_config=extractor_config,
         stage_config=stage_config,
@@ -363,7 +393,14 @@ def _execute_manual_sync(*, db_path: str, plan_path: str, scope: str, triggered_
     global _MANUAL_SYNC_STATE
     store = EvidenceStore(db_path)
     store.init_db()
+    event_id: int | None = None
+    completion_status = "failed"
+    completion_error = ""
+    run_ids: list[int] = []
     try:
+        event_id = store.start_manual_sync_event(scope=scope, triggered_by=triggered_by)
+        with _MANUAL_SYNC_LOCK:
+            _MANUAL_SYNC_STATE["event_id"] = event_id
         if scope == "all":
             jobs = load_sync_plan(plan_path)
             with _MANUAL_SYNC_LOCK:
@@ -377,6 +414,9 @@ def _execute_manual_sync(*, db_path: str, plan_path: str, scope: str, triggered_
                     _MANUAL_SYNC_STATE["current_source"] = source_name
                     _MANUAL_SYNC_STATE["current_source_started_at"] = source_started.isoformat()
                 result = _run_single_job(db_path, job)
+                run_id = int(result.get("run_id", 0) or 0)
+                if run_id > 0:
+                    run_ids.append(run_id)
                 if str(result.get("status", "")) != "ok":
                     raise RuntimeError(
                         f"Sync failed for {source_name}: {result.get('notes', 'unknown error')}"
@@ -400,6 +440,9 @@ def _execute_manual_sync(*, db_path: str, plan_path: str, scope: str, triggered_
                 _MANUAL_SYNC_STATE["current_source_started_at"] = source_started.isoformat()
                 _MANUAL_SYNC_STATE["observed_durations"] = {}
             result = _run_single_job(db_path, job)
+            run_id = int(result.get("run_id", 0) or 0)
+            if run_id > 0:
+                run_ids.append(run_id)
             if str(result.get("status", "")) != "ok":
                 raise RuntimeError(f"Sync failed for {scope}: {result.get('notes', 'unknown error')}")
             duration_seconds = max(
@@ -411,14 +454,41 @@ def _execute_manual_sync(*, db_path: str, plan_path: str, scope: str, triggered_
                 _MANUAL_SYNC_STATE["observed_durations"] = {scope: duration_seconds}
                 _MANUAL_SYNC_STATE["completed_sources"] = 1
         store.record_manual_sync_success(scope)
+        completion_status = "success"
+        logger.info(
+            "manual_sync_completed scope=%s triggered_by=%s run_ids=%s",
+            scope,
+            triggered_by,
+            run_ids,
+        )
     except Exception as exc:
+        completion_error = str(exc)
         with _MANUAL_SYNC_LOCK:
-            _MANUAL_SYNC_STATE["error"] = str(exc)
+            _MANUAL_SYNC_STATE["error"] = completion_error
+        logger.exception(
+            "manual_sync_failed scope=%s triggered_by=%s run_ids=%s error=%s",
+            scope,
+            triggered_by,
+            run_ids,
+            completion_error,
+        )
     finally:
+        completion_at = datetime.now(timezone.utc).isoformat()
+        if event_id is not None:
+            store.finish_manual_sync_event(
+                event_id,
+                status=completion_status,
+                error=completion_error,
+                run_ids=run_ids,
+                notes="manual_sync_worker",
+            )
         with _MANUAL_SYNC_LOCK:
             _MANUAL_SYNC_STATE["in_progress"] = False
             _MANUAL_SYNC_STATE["current_source"] = None
             _MANUAL_SYNC_STATE["current_source_started_at"] = None
+            _MANUAL_SYNC_STATE["completion_status"] = completion_status
+            _MANUAL_SYNC_STATE["completion_error"] = completion_error or _MANUAL_SYNC_STATE.get("error")
+            _MANUAL_SYNC_STATE["completion_at"] = completion_at
 
 
 def start_manual_sync(
@@ -461,6 +531,10 @@ def start_manual_sync(
                 "total_sources": 0,
                 "observed_durations": {},
                 "error": None,
+                "completion_status": None,
+                "completion_error": None,
+                "completion_at": None,
+                "event_id": None,
             }
         )
 

@@ -4,12 +4,24 @@ import { fetchManualSyncStatus, triggerManualSync } from '@/api/app'
 import { useAppStore } from '@/stores/app'
 import type { ManualSyncStatusResponse, NoticeOptions, StatusResponse } from '@/types/api'
 
+function syncSucceeded(data: ManualSyncStatusResponse, scope: string | null): boolean {
+  if (data.last_completion_status === 'success') return true
+  if (data.last_completion_status === 'failed') return false
+  if (data.error) return false
+  if (!scope) return false
+  if (scope === 'all') return false
+  const source = data.sources?.find((row) => row.source === scope)
+  if (!source) return false
+  return source.sync_status === 'ok' && source.last_attempt_status === 'ok'
+}
+
 export const useStatusStore = defineStore('status', {
   state: () => ({
     snapshot: null as StatusResponse | null,
     manualSync: null as ManualSyncStatusResponse | null,
     pollTimer: null as ReturnType<typeof setInterval> | null,
     wasActive: false,
+    pendingScope: null as string | null,
     flash: null as NoticeOptions | null,
     flashTimer: null as ReturnType<typeof setTimeout> | null,
     configSeeded: false,
@@ -45,13 +57,21 @@ export const useStatusStore = defineStore('status', {
       } else {
         this.schedulePolling(false)
         if (completed) {
-          this.setFlash({ type: 'success', message: 'sync_completed' })
+          if (syncSucceeded(data, this.pendingScope)) {
+            this.setFlash({ type: 'success', message: 'sync_completed' })
+          } else {
+            const message = data.last_completion_error || data.error || 'sync_failed'
+            this.setFlash({ type: 'error', message })
+          }
+          this.pendingScope = null
         }
         this.wasActive = false
       }
       return data
     },
     async trigger(payload: { scope: 'all' } | { source: string }) {
+      this.pendingScope = 'scope' in payload ? payload.scope : payload.source
+      this.wasActive = true
       await triggerManualSync(payload)
       await this.refreshManualSync()
     },
