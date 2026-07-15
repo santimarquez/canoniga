@@ -32,31 +32,32 @@
           </RouterLink>
         </nav>
 
-        <div class="relative">
-          <UiButton variant="ghost" size="sm" @click="auth.profileMenuOpen = !auth.profileMenuOpen">
-            <span class="material-symbols-outlined text-[18px]">account_circle</span>
-            <span class="hidden sm:inline">{{ auth.displayName }}</span>
-          </UiButton>
-          <div
-            v-if="auth.profileMenuOpen"
-            class="absolute right-0 mt-2 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+        <UiPopover ref="profileMenuRef" align="right" panel-class="w-56 p-2">
+          <template #trigger="{ toggle }">
+            <UiButton variant="ghost" size="sm" @click="toggle">
+              <span class="material-symbols-outlined text-[18px]">account_circle</span>
+              <span class="hidden sm:inline">{{ auth.displayName }}</span>
+            </UiButton>
+          </template>
+
+          <button class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-slate-100" type="button" @click="openProfile">
+            <span class="material-symbols-outlined text-[18px] text-slate-500">manage_accounts</span>
+            {{ t('app.profile_menu_edit') }}
+          </button>
+          <button class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-slate-100" type="button" @click="openSettings">
+            <span class="material-symbols-outlined text-[18px] text-slate-500">settings</span>
+            {{ t('app.settings') }}
+          </button>
+          <button
+            v-if="auth.authEnabled"
+            class="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+            type="button"
+            @click="signOut"
           >
-            <button class="block w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-100" type="button" @click="openProfile">
-              {{ t('app.profile_menu_edit') }}
-            </button>
-            <button class="block w-full rounded px-3 py-2 text-left text-sm hover:bg-slate-100" type="button" @click="openSettings">
-              {{ t('app.settings') }}
-            </button>
-            <button
-              v-if="auth.authEnabled"
-              class="block w-full rounded px-3 py-2 text-left text-sm text-red-700 hover:bg-red-50"
-              type="button"
-              @click="signOut"
-            >
-              {{ t('app.profile_menu_logout') }}
-            </button>
-          </div>
-        </div>
+            <span class="material-symbols-outlined text-[18px]">logout</span>
+            {{ t('app.profile_menu_logout') }}
+          </button>
+        </UiPopover>
       </div>
     </div>
 
@@ -75,11 +76,13 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import DbStatusPopover from '@/components/db/DbStatusPopover.vue'
 import { LOGO_ALT, LOGO_URL } from '@/brand'
 import UiButton from '@/components/ui/UiButton.vue'
+import UiPopover from '@/components/ui/UiPopover.vue'
 import StatusBar from '@/components/layout/StatusBar.vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
@@ -89,6 +92,7 @@ const auth = useAuthStore()
 const app = useAppStore()
 const router = useRouter()
 const route = useRoute()
+const profileMenuRef = ref<InstanceType<typeof UiPopover> | null>(null)
 
 const navItems = [
   { name: 'assistant', label: 'nav_assistant' },
@@ -97,18 +101,22 @@ const navItems = [
   { name: 'review', label: 'nav_review' },
 ] as const
 
+function closeProfileMenu() {
+  profileMenuRef.value?.close()
+}
+
 function openProfile() {
-  auth.profileMenuOpen = false
+  closeProfileMenu()
   app.profileOpen = true
 }
 
 function openSettings() {
-  auth.profileMenuOpen = false
+  closeProfileMenu()
   app.settingsOpen = true
 }
 
 async function signOut() {
-  auth.profileMenuOpen = false
+  closeProfileMenu()
   await auth.signOut()
   await router.push('/login')
 }

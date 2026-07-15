@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button class="absolute inset-0 bg-black/40" type="button" aria-label="Close" @click="$emit('close')" />
+      <button class="absolute inset-0 bg-black/40 backdrop-blur-sm" type="button" aria-label="Close" @click="$emit('close')" />
       <div
         class="relative z-10 flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-xl bg-white shadow-xl"
         :class="panelClass"

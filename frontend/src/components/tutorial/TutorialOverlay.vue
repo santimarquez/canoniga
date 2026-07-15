@@ -1,5 +1,5 @@
 <template>
-  <div v-if="app.tutorialRunning" class="fixed inset-0 z-50 bg-black/40">
+  <div v-if="app.tutorialRunning" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm">
     <div class="absolute bottom-6 left-1/2 w-[min(92vw,480px)] -translate-x-1/2 rounded-xl bg-white p-4 shadow-xl">
       <p class="text-sm text-slate-700">{{ stepText }}</p>
       <div class="mt-4 flex justify-end gap-2">

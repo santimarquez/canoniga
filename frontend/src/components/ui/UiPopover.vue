@@ -3,8 +3,8 @@
     <slot name="trigger" :toggle="toggle" :open="open" />
     <div
       v-if="open"
-      class="absolute z-40 mt-2 min-w-[280px] rounded-xl border border-slate-200 bg-white p-4 shadow-xl"
-      :class="alignClass"
+      class="absolute z-40 mt-2 rounded-xl border border-slate-200 bg-white shadow-xl"
+      :class="[alignClass, panelClass]"
     >
       <slot />
     </div>
@@ -14,7 +14,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-const props = withDefaults(defineProps<{ align?: 'left' | 'right' }>(), { align: 'right' })
+const props = withDefaults(defineProps<{ align?: 'left' | 'right'; panelClass?: string }>(), {
+  align: 'right',
+  panelClass: 'min-w-[280px] p-4',
+})
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 

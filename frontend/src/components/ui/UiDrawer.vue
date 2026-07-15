@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body">
     <div v-if="open" class="fixed inset-0 z-50">
-      <button class="absolute inset-0 bg-black/30" type="button" aria-label="Close" @click="$emit('close')" />
+      <button class="absolute inset-0 bg-black/30 backdrop-blur-sm" type="button" aria-label="Close" @click="$emit('close')" />
       <aside
         class="absolute top-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl"
         :class="side === 'right' ? 'right-0' : 'left-0'"

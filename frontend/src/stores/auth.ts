@@ -10,7 +10,6 @@ export const useAuthStore = defineStore('auth', {
     userProfile: null as UserProfile | null,
     csrfToken: '',
     profileAvatarVersion: 0,
-    profileMenuOpen: false,
     loading: false,
   }),
   getters: {
