@@ -1,0 +1,11 @@
+{
+  "common.time_na": "n/a",
+  "common.time_just_now": "just now",
+  "common.time_minutes_ago": "{n}m ago",
+  "common.time_hours_ago": "{n}h ago",
+  "common.time_days_ago": "{n}d ago",
+  "common.time_last_sync": "Last sync: {time}",
+  "common.lang.en": "EN",
+  "common.lang.es": "ES",
+  "common.lang.label": "Language"
+}

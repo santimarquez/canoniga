@@ -1,0 +1,11 @@
+{
+  "common.time_na": "n/d",
+  "common.time_just_now": "ahora mismo",
+  "common.time_minutes_ago": "hace {n} min",
+  "common.time_hours_ago": "hace {n} h",
+  "common.time_days_ago": "hace {n} d",
+  "common.time_last_sync": "Ultima sincronizacion: {time}",
+  "common.lang.en": "EN",
+  "common.lang.es": "ES",
+  "common.lang.label": "Idioma"
+}

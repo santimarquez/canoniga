@@ -21,3 +21,8 @@ data/benchmark_gate/
 data/models/
 tmp_*.sqlite
 
+# Frontend build artifacts
+assets/dist/
+
+# Dependencies
+frontend/node_modules/

@@ -1,13 +1,37 @@
 ---
-description: Web UI conventions for the monolithic webui.py
-globs: "**/webui.py"
+description: Web UI conventions — Vue frontend + Python API
+globs: "**/{webui.py,static_frontend.py,frontend/**}"
 alwaysApply: false
 ---
 
-# Web UI (webui.py)
+# Web UI
 
-- Monolithic file — add `_private_helpers` near the handlers that use them.
-- API responses use `_json_response`; streaming events use `_stream_json_event`.
-- Auth/CSRF: follow existing protected POST handler patterns; never skip CSRF on authenticated writes.
-- Extend `tests/test_webui_api.py` for every new or changed API route.
-- Keep inline HTML/CSS/JS in-file unless explicitly asked to split modules.
+## Architecture
+
+- **Frontend:** Vue 3 + TypeScript + Vite in `frontend/`
+- **API:** `ChatHandler` in `src/als_intel/webui.py`
+- **Static serving:** `src/als_intel/static_frontend.py` serves `assets/dist/` (SPA)
+
+## Conventions
+
+- UI components live in `frontend/src/components/`; route shells in `frontend/src/views/`
+- API client wrappers in `frontend/src/api/`; shared types in `frontend/src/types/`
+- i18n source of truth: `src/als_intel/i18n/locales/*.json` (sync via `frontend/scripts/sync-locales.mjs`)
+- API responses use `_json_response`; streaming events use `_stream_json_event`
+- Auth/CSRF: follow existing protected POST handler patterns; never skip CSRF on authenticated writes
+- Extend `tests/test_webui_api.py` for every new or changed API route
+- Build frontend before Docker: `make frontend-build` (or multi-stage Dockerfile)
+
+## Dev workflow
+
+```bash
+# Terminal 1
+make web-dev        # API on :8000 (.venv Python)
+
+# Terminal 2
+make frontend-dev   # Vite on :5173, proxies /api to :8000
+```
+
+Open `http://localhost:5173/` in dev (not `/app-assets/`). Production builds use `base: /app-assets/` and are served from `assets/dist/`.
+
+Database explorer (`DbExplorerModal.vue`): fixed-height modal, infinite-scroll list, in-modal node detail with source links, reliability breakdowns, and dotted-underline field helpers (`UiFieldHelp`).

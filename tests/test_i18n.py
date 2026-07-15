@@ -9,7 +9,7 @@ from als_intel.i18n import (
 )
 from als_intel.i18n.audit import assert_locale_parity, missing_keys
 from als_intel.landing import render_landing_page
-from als_intel.webui import render_login_page
+from als_intel.i18n.locales import LOCALE_STRINGS
 
 
 def test_normalize_locale() -> None:
@@ -84,9 +84,7 @@ def test_render_landing_page_spanish_smoke() -> None:
     assert 'href="?lang=es"' in body
 
 
-def test_render_login_page_spanish_smoke() -> None:
-    body = render_login_page(auth_enabled=True, locale="es").decode("utf-8")
-    assert 'lang="es"' in body
-    assert "Iniciar sesion" in body
-    assert 'id="loginEmail"' in body
-    assert "Enviar magic link" in body
+def test_login_locale_bundle_spanish_smoke() -> None:
+    bundle = LOCALE_STRINGS["es"]
+    assert "login.sign_in" in bundle
+    assert "Iniciar sesión" in bundle["login.sign_in"] or "Iniciar sesion" in bundle["login.sign_in"]

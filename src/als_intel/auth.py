@@ -250,7 +250,7 @@ def build_auth_config() -> AuthConfig:
     return AuthConfig(
         app_base_url=os.getenv("ALS_APP_BASE_URL", "http://localhost:8000"),
         magic_link_ttl_seconds=int(os.getenv("ALS_MAGIC_LINK_TTL_SECONDS", "900")),
-        session_ttl_seconds=int(os.getenv("ALS_SESSION_TTL_SECONDS", "28800")),
+        session_ttl_seconds=int(os.getenv("ALS_SESSION_TTL_SECONDS", str(7 * 24 * 60 * 60))),
         session_renew_window_seconds=int(os.getenv("ALS_SESSION_RENEW_WINDOW_SECONDS", "900")),
         cookie_name=os.getenv("ALS_AUTH_COOKIE_NAME", "als_session"),
         smtp_host=os.getenv("ALS_SMTP_HOST", ""),

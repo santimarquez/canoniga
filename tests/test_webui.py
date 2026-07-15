@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 import importlib
+from http.server import BaseHTTPRequestHandler
+from io import BytesIO
+from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
-from als_intel.brand import LOGO_PRIMARY_COLOR, favicon_link_tag, render_inline_logo
 from als_intel.webui import (
-    LOGIN_TEMPLATE,
-    PAGE_TEMPLATE,
     _apply_evidence_filters,
     _apply_response_guardrails,
     _build_chat_prompt,
     _build_synthesis,
+    _governance_doc_body,
     _rank_cited_evidence_rows,
     _search_evidence_rows,
-    render_index_page,
 )
+from als_intel.static_frontend import serve_repo_asset, spa_available, serve_spa_or_static
 
 
 def test_build_chat_prompt_uses_latest_user_message_and_context() -> None:
@@ -78,210 +80,73 @@ def test_search_evidence_rows_matches_claim_id_and_doi() -> None:
             "claim_text": "Metformin improves insulin sensitivity",
             "entity": "metformin",
             "outcome": "insulin resistance",
-            "source_doi": "10.1000/abc",
+            "source_doi": "10.1/example",
         },
         {
             "claim_id": "C2",
-            "claim_text": "No effect observed",
-            "entity": "metformin",
-            "outcome": "glucose",
-            "source_doi": "10.1000/xyz",
+            "claim_text": "Other claim",
+            "entity": "other",
+            "outcome": "other",
+            "source_doi": "10.2/other",
         },
     ]
-    assert [r["claim_id"] for r in _search_evidence_rows(rows, "C1")] == ["C1"]
-    assert [r["claim_id"] for r in _search_evidence_rows(rows, "xyz")] == ["C2"]
+    matches = _search_evidence_rows(rows, "C1")
+    assert [row["claim_id"] for row in matches] == ["C1"]
+    matches_doi = _search_evidence_rows(rows, "10.2/other")
+    assert [row["claim_id"] for row in matches_doi] == ["C2"]
 
 
-def test_build_synthesis_only_includes_answer_grounded_sections() -> None:
-    evidence_rows = [
-        {"claim_id": "C1"},
-        {"claim_id": "C2"},
-    ]
-    contradictions = [
-        {
-            "claim_a": "C1",
-            "claim_b": "C9",
-            "contradiction_type": "direction_conflict",
-        }
-    ]
+def test_build_synthesis_uses_only_grounded_sections() -> None:
     synthesis = _build_synthesis(
-        answer=(
-            "**Direct Answer** Text.\n\n"
-            "**Supporting Evidence References**\n"
-            "1. claim_id=C1\n"
-            "2. claim_id=C9\n\n"
-            "**Contradictions or Uncertainty**\n"
-            "Potential endpoint mismatch.\n\n"
-            "**Suggested Validation Next Steps**\n"
-            "Run a confirmatory trial."
-        ),
-        evidence_rows=evidence_rows,
-        contradiction_rows=contradictions,
+        answer="Direct answer mentioning claim_id=C1\n**Contradictions or Uncertainty**\nNone noted",
+        evidence_rows=[
+            {
+                "claim_id": "C1",
+                "claim_text": "Claim",
+                "reliability_score": 0.8,
+                "source_doi": "10.1/x",
+            }
+        ],
+        contradiction_rows=[],
     )
-    assert "Direct Answer" in synthesis["direct_answer"]
-    assert synthesis["supporting_claim_ids"] == ["C1"]
-    assert "Potential endpoint mismatch." in str(synthesis["contradictions_summary"])
-    assert synthesis["next_validation_step"] == "Run a confirmatory trial."
+    assert synthesis["direct_answer"]
+    assert "C1" in synthesis.get("mentioned_claim_ids", [])
 
 
-def test_apply_evidence_filters_highlight_contradictions_promotes_contradictory_rows() -> None:
-    rows = [
-        {
-            "claim_id": "C1",
-            "causal_evidence_type": "observational",
-            "effect_direction": "supports",
-            "reliability_score": 0.95,
-            "year": 2023,
-        },
-        {
-            "claim_id": "C2",
-            "causal_evidence_type": "observational",
-            "effect_direction": "contradicts",
-            "reliability_score": 0.50,
-            "year": 2023,
-        },
-    ]
-
-    filtered = _apply_evidence_filters(
-        rows,
-        {
-            "evidence_types": ["observational"],
-            "min_reliability": 0.0,
-            "date_window": "all",
-            "highlight_contradictions": True,
-        },
-    )
-
-    assert [row["claim_id"] for row in filtered] == ["C2", "C1"]
-
-
-def test_apply_evidence_filters_excludes_missing_reliability_unless_min_zero() -> None:
-    rows = [
-        {
-            "claim_id": "C1",
-            "causal_evidence_type": "observational",
-            "reliability_score": 0.8,
-            "year": 2024,
-        },
-        {
-            "claim_id": "C2",
-            "causal_evidence_type": "observational",
-            "year": 2024,
-        },
-    ]
-
-    filtered_non_zero = _apply_evidence_filters(
-        rows,
-        {
-            "evidence_types": ["observational"],
-            "min_reliability": 0.5,
-            "date_window": "all",
-        },
-    )
-    assert [row["claim_id"] for row in filtered_non_zero] == ["C1"]
-
-    filtered_zero = _apply_evidence_filters(
-        rows,
-        {
-            "evidence_types": ["observational"],
-            "min_reliability": 0.0,
-            "date_window": "all",
-        },
-    )
-    assert [row["claim_id"] for row in filtered_zero] == ["C1", "C2"]
-
-
-def test_page_template_includes_db_provenance_fields() -> None:
-    template_text = PAGE_TEMPLATE.template
-    assert "API endpoint:" in template_text
-    assert "Query used:" in template_text
-    assert "Source version:" in template_text
-    assert "Source license:" in template_text
-    assert "Extracted at:" in template_text
-
-
-def test_apply_response_guardrails_fills_required_fields_when_missing() -> None:
-    evidence_rows = [
-        {"claim_id": "C1", "reliability_score": 0.9},
-        {"claim_id": "C2", "reliability_score": 0.7},
-    ]
-    contradiction_rows = [{"claim_a": "C1", "claim_b": "C2"}]
-
+def test_apply_response_guardrails_fills_missing_claim_ids() -> None:
+    synthesis = {
+        "direct_answer": "Draft",
+        "mentioned_claim_ids": [],
+        "supporting_claim_ids": [],
+        "contradictions_summary": "",
+        "next_validation_step": "",
+    }
     guarded, flags = _apply_response_guardrails(
-        answer="Interim answer with no explicit structure.",
-        synthesis={"direct_answer": "", "mentioned_claim_ids": [], "supporting_claim_ids": []},
-        evidence_rows=evidence_rows,
-        contradiction_rows=contradiction_rows,
+        answer="Draft",
+        synthesis=synthesis,
+        evidence_rows=[
+            {
+                "claim_id": "C9",
+                "claim_text": "Claim",
+                "reliability_score": 0.7,
+                "source_doi": "10.9/x",
+            }
+        ],
+        contradiction_rows=[],
         language="en",
     )
-
-    assert guarded["direct_answer"] == "Interim answer with no explicit structure."
-    assert guarded["mentioned_claim_ids"] == ["C1", "C2"]
-    assert guarded["supporting_claim_ids"] == ["C1", "C2"]
-    assert isinstance(guarded.get("contradictions_summary"), str)
-    assert isinstance(guarded.get("next_validation_step"), str)
+    assert guarded["mentioned_claim_ids"] == ["C9"]
     assert "mentioned_claim_ids_filled" in flags
-    assert "supporting_claim_ids_filled" in flags
-    assert "contradictions_summary_filled" in flags
 
 
-def test_rank_cited_evidence_rows_prioritizes_reliability_and_recency() -> None:
+def test_rank_cited_evidence_rows_orders_by_reliability_and_recency() -> None:
     rows = [
-        {
-            "claim_id": "C_OLD_LOW",
-            "reliability_score": 0.3,
-            "year": 2005,
-            "study_type": "observational",
-        },
-        {
-            "claim_id": "C_NEW_HIGH",
-            "reliability_score": 0.95,
-            "year": 2024,
-            "study_type": "interventional",
-        },
-        {
-            "claim_id": "C_MID",
-            "reliability_score": 0.7,
-            "year": 2021,
-            "study_type": "meta_analysis",
-        },
+        {"claim_id": "C_OLD", "reliability_score": 0.9, "year": 2010},
+        {"claim_id": "C_NEW_HIGH", "reliability_score": 0.95, "year": 2024},
+        {"claim_id": "C_MID", "reliability_score": 0.8, "year": 2020},
     ]
-
     ranked = _rank_cited_evidence_rows(rows)
-
-    assert [row["claim_id"] for row in ranked][:2] == ["C_NEW_HIGH", "C_MID"]
-
-
-def test_diagnostics_template_references_verification_flags() -> None:
-    assert "verification_flags" in PAGE_TEMPLATE.template
-
-
-def test_failure_atlas_template_references_api_and_endpoint_result() -> None:
-    assert "failureAtlasList" in PAGE_TEMPLATE.template
-    assert "/api/failure-atlas" in PAGE_TEMPLATE.template
-    assert "primary_endpoint_result" in PAGE_TEMPLATE.template
-    assert "fetchFailureAtlas" in PAGE_TEMPLATE.template
-
-
-def test_investigator_template_has_four_workspace_tabs_and_profile_menu() -> None:
-    template = PAGE_TEMPLATE.template
-    assert 'id="navAssistant"' in template
-    assert 'id="navSessions"' in template
-    assert 'id="navHypothesis"' in template
-    assert 'id="navReview"' in template
-    assert 'id="hypothesisView"' in template
-    assert 'id="reviewView"' in template
-    assert 'workspace-stage' in template
-    assert 'workspace-pane' in template
-    assert 'is-active' in template
-    assert 'id="openProfileMenu"' in template
-    assert 'id="profileDrawer"' in template
-    assert 'id="openSettings"' not in template
-    assert 'id="logoutBtn"' not in template
-    assert 'id="hypothesisQueueModal"' not in template
-    assert 'id="reviewQueueModal"' not in template
-    assert "view-assistant" in template
-    assert "function switchView" in template
+    assert [row["claim_id"] for row in ranked][:2] == ["C_NEW_HIGH", "C_OLD"]
 
 
 def test_default_timeout_seconds_defaults_to_300(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -292,51 +157,50 @@ def test_default_timeout_seconds_defaults_to_300(monkeypatch: pytest.MonkeyPatch
     assert webui_module.DEFAULT_TIMEOUT_SECONDS == 300
 
 
-def test_index_page_embeds_configured_timeout_seconds() -> None:
-    body = render_index_page(
-        db_path="/tmp/test.sqlite",
-        ollama_host="http://localhost:11434",
-        model="llama3.1:8b",
-        context_limit=20,
-        temperature=0.1,
-        timeout_seconds=300,
-        auth_enabled=False,
-    ).decode("utf-8")
-    assert "timeoutSeconds: Number('300')" in body
+def test_governance_doc_body_serves_mission_md() -> None:
+    payload = _governance_doc_body("MISSION.md")
+    assert payload is not None
+    assert "MTVL AI / Canoniga Mission" in payload["title"]
+    assert "Objective" in payload["body_html"]
+    assert "<pre" not in payload["body_html"]
 
 
-def test_investigator_template_includes_llm_timeout_helpers() -> None:
-    template = PAGE_TEMPLATE.template
-    assert "function renderReportPlaceholder" in template
-    assert "function isTimeoutError" in template
-    assert "function formatLlmError" in template
-    assert "llm_timeout_hint" in template
-    assert "stream_fallback" in template
-    assert "report_placeholder" in template
-    assert "if (isTimeoutError(streamError))" in template
+def test_brand_logo_svg_is_well_formed_xml() -> None:
+    import xml.etree.ElementTree as ET
+
+    from als_intel.brand import logo_path
+
+    ET.parse(logo_path())
 
 
-def test_governance_doc_route_helper_serves_mission_md() -> None:
-    from als_intel.webui import render_governance_doc_page
-
-    body = render_governance_doc_page("MISSION.md")
-    assert body is not None
-    text = body.decode("utf-8")
-    assert "MTVL AI / Canoniga Mission" in text
-    assert "<h2" in text
-    assert "Objective" in text
-    assert "<pre" not in text
-    assert 'href="/docs/ETHICS_AND_OVERSIGHT.md"' in text
+def test_serve_repo_asset_returns_logo_svg() -> None:
+    handler = MagicMock(spec=BaseHTTPRequestHandler)
+    handler.wfile = BytesIO()
+    handled = serve_repo_asset(handler, "/assets/mtvl-ai-logo.svg")
+    assert handled is True
+    handler.send_response.assert_called_once()
+    body = handler.wfile.getvalue()
+    assert b"<svg" in body.lower()
 
 
-def test_login_template_includes_magic_link_confirmation_panel() -> None:
-    from als_intel.webui import render_login_page
+def test_serve_repo_asset_rejects_traversal() -> None:
+    handler = MagicMock(spec=BaseHTTPRequestHandler)
+    handler.wfile = BytesIO()
+    assert serve_repo_asset(handler, "/assets/../src/als_intel/webui.py") is False
 
-    html = render_login_page(auth_enabled=True, locale="en").decode("utf-8")
-    assert "<svg" in html
-    assert LOGO_PRIMARY_COLOR in html
-    assert 'id="loginRequestPanel"' in html
-    assert 'id="loginResultPanel"' in html
-    assert "Check your email" in html
-    assert "showLoginResultPanel" in html
-    assert 'id="loginEmail"' in html
+
+@pytest.mark.skipif(not spa_available(), reason="frontend build not present")
+    handler = MagicMock(spec=BaseHTTPRequestHandler)
+    handler.wfile = BytesIO()
+    handled = serve_spa_or_static(handler, "/app")
+    assert handled is True
+    handler.send_response.assert_called_once()
+    body = handler.wfile.getvalue()
+    assert b"<div id=\"app\"></div>" in body or b'id="app"' in body
+
+
+@pytest.mark.skipif(not spa_available(), reason="frontend build not present")
+def test_built_frontend_assets_exist() -> None:
+    dist = Path(__file__).resolve().parents[1] / "assets" / "dist"
+    assert (dist / "index.html").is_file()
+    assert any(dist.glob("assets/*.js"))

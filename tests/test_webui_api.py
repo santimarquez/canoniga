@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -1120,8 +1122,27 @@ def test_magic_link_auth_and_user_scoped_sessions(api_server_auth: str) -> None:
 def test_unauthenticated_root_serves_landing(api_server_auth: str) -> None:
     code, _, body = _request_no_redirect(api_server_auth, "/")
     assert code == 200
-    assert "Sign in to investigate" in body
-    assert "/assets/landing-dashboard-mockup.png" in body
+    assert 'id="app"' in body
+    assert "/app-assets/" in body
+
+
+def test_unauthenticated_app_assets_serve_javascript(api_server_auth: str) -> None:
+    _, _, body = _request_no_redirect(api_server_auth, "/")
+    match = re.search(r'src="(/app-assets/[^"]+\.js)"', body)
+    if match is None:
+        pytest.skip("frontend build not present")
+    asset_path = match.group(1)
+    code, headers, asset_body = _request_no_redirect(api_server_auth, asset_path)
+    assert code == 200
+    assert "javascript" in str(headers.get("Content-Type") or "").lower()
+    assert asset_body.startswith("(") or "function" in asset_body or "const" in asset_body
+
+
+def test_unauthenticated_brand_logo_serves_svg(api_server_auth: str) -> None:
+    code, headers, body = _request_no_redirect(api_server_auth, "/assets/mtvl-ai-logo.svg")
+    assert code == 200
+    assert "svg" in str(headers.get("Content-Type") or "").lower()
+    assert "<svg" in body.lower()
 
 
 def test_unauthenticated_app_redirects_to_login(api_server_auth: str) -> None:
@@ -1191,9 +1212,8 @@ def test_authenticated_root_serves_landing_with_app_cta(api_server_auth: str) ->
         code = exc.code
         body = exc.read().decode("utf-8")
     assert code == 200
-    assert "Reduce ALS research uncertainty with traceable, cited intelligence" in body
-    assert 'href="/app"' in body
-    assert "Continue investigating" in body
+    assert 'id="app"' in body
+    assert "/app-assets/" in body
 
 
 def test_unauthenticated_unknown_page_redirects_to_login(api_server_auth: str) -> None:
@@ -2508,3 +2528,110 @@ def test_automation_review_queue_filters_and_summary(
     assert dashboard_code == 200
     dashboard_review_queue = dashboard_data.get("review_queue") if isinstance(dashboard_data.get("review_queue"), dict) else {}
     assert int(dashboard_review_queue.get("pending_total") or 0) >= 2
+
+
+def _authenticated_session(api_server_auth: str, email: str) -> tuple[str, str]:
+    req_code, req_data = _request_json(
+        api_server_auth,
+        "/api/auth/request-link",
+        method="POST",
+        payload={"email": email},
+    )
+    assert req_code == 200
+    magic_link = str(req_data.get("magic_link") or "")
+    token = magic_link.split("magic_token=", 1)[1].split("&", 1)[0]
+    verify_code, verify_data, verify_headers = _request_json_with_headers(
+        api_server_auth,
+        "/api/auth/verify-link",
+        method="POST",
+        payload={"token": token},
+    )
+    assert verify_code == 200
+    cookie_pair = str(verify_headers.get("Set-Cookie") or "").split(";", 1)[0]
+    csrf_token = str(verify_data.get("csrf_token") or "")
+    assert cookie_pair
+    assert csrf_token
+    return cookie_pair, csrf_token
+
+
+def test_manual_sync_status_requires_auth(api_server_auth: str) -> None:
+    code, data = _request_json(api_server_auth, "/api/sync/manual/status")
+    assert code == 401
+    assert "auth" in str(data.get("error", "")).lower()
+
+
+def test_manual_sync_status_returns_sources(api_server_auth: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALS_SYNC_PLAN", "config/sync_plan.smoke_public_sources.json")
+    cookie_pair, csrf_token = _authenticated_session(api_server_auth, "sync-status@example.com")
+    code, data = _request_json(
+        api_server_auth,
+        "/api/sync/manual/status",
+        headers={"Cookie": cookie_pair, "X-CSRF-Token": csrf_token},
+    )
+    assert code == 200
+    sources = data.get("sources")
+    assert isinstance(sources, list)
+    assert len(sources) >= 5
+    assert "can_trigger_all" in data
+    assert "can_trigger" in data
+    first_source = sources[0]
+    assert "can_trigger" in first_source
+
+
+def test_manual_sync_trigger_requires_csrf(api_server_auth: str) -> None:
+    cookie_pair, _csrf = _authenticated_session(api_server_auth, "sync-csrf@example.com")
+    code, data = _request_json(
+        api_server_auth,
+        "/api/sync/manual/trigger",
+        method="POST",
+        headers={"Cookie": cookie_pair},
+        payload={"source": "pubmed"},
+    )
+    assert code == 403
+    assert "csrf" in str(data.get("error", "")).lower()
+
+
+def test_manual_sync_trigger_returns_202(api_server_auth: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALS_SYNC_PLAN", "config/sync_plan.smoke_public_sources.json")
+    monkeypatch.setattr(
+        "als_intel.manual_sync._run_single_job",
+        lambda db_path, job: {
+            "status": "ok",
+            "source": str(job["source"]),
+            "inserted": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "notes": "",
+        },
+    )
+    cookie_pair, csrf_token = _authenticated_session(api_server_auth, "sync-trigger@example.com")
+    code, data = _request_json(
+        api_server_auth,
+        "/api/sync/manual/trigger",
+        method="POST",
+        headers={"Cookie": cookie_pair, "X-CSRF-Token": csrf_token},
+        payload={"source": "pubmed"},
+    )
+    assert code == 202
+    assert data.get("status") == "started"
+    assert data.get("scope") == "pubmed"
+
+
+def test_manual_sync_trigger_respects_cooldown(api_server_auth: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALS_SYNC_PLAN", "config/sync_plan.smoke_public_sources.json")
+    monkeypatch.setenv("ALS_MANUAL_SYNC_COOLDOWN_HOURS", "6")
+    cookie_pair, csrf_token = _authenticated_session(api_server_auth, "sync-cooldown@example.com")
+
+    store = EvidenceStore(Path(os.environ["ALS_DB_PATH"]))
+    store.init_db()
+    store.record_manual_sync_success("all")
+
+    code, data = _request_json(
+        api_server_auth,
+        "/api/sync/manual/trigger",
+        method="POST",
+        headers={"Cookie": cookie_pair, "X-CSRF-Token": csrf_token},
+        payload={"scope": "all"},
+    )
+    assert code == 429
+    assert "cooldown" in str(data.get("error", "")).lower()

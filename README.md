@@ -244,11 +244,23 @@ make gpu-check
 
 `make gpu-check` runs a long generation while sampling `ollama ps` and `nvidia-smi` so you can confirm active GPU utilization during inference.
 
-If you want to run the web UI without Docker, you can use:
+If you want to run the web UI without Docker, build the Vue frontend first, then start the API:
 
 ```bash
-python -m als_intel.webui --db data/als_intel.sqlite --ollama-host http://localhost:11434 --model llama3.1:8b
+make frontend-build
+make web-dev
 ```
+
+For frontend development with hot reload (API on `:8000`, Vite on `:5173`):
+
+```bash
+make web-dev       # terminal 1 — API backend
+make frontend-dev  # terminal 2 — Vite hot reload
+```
+
+Open `http://localhost:5173/` (not `/app-assets/` — that path is only for production asset bundles on `:8000`).
+
+Frontend lives in `frontend/` (Vue 3 + TypeScript + Vite). Production builds output to `assets/dist/` and are served by the Python process.
 
 ## Authentication and magic-link configuration
 
@@ -259,7 +271,7 @@ Core auth settings:
 - `ALS_AUTH_ENABLED` (default: `1`): enable auth gate and user scoping.
 - `ALS_APP_BASE_URL` (default: `http://localhost:8000`): base URL used to generate magic links.
 - `ALS_MAGIC_LINK_TTL_SECONDS` (default: `900`): magic-link lifetime.
-- `ALS_SESSION_TTL_SECONDS` (default: `28800`): auth session lifetime.
+- `ALS_SESSION_TTL_SECONDS` (default: `604800`, 7 days): auth session lifetime.
 - `ALS_SESSION_RENEW_WINDOW_SECONDS` (default: `900`): when remaining lifetime falls below this threshold, `/api/auth/status` rotates and renews the session token.
 - `ALS_AUTH_COOKIE_NAME` (default: `als_session`): session cookie name.
 
@@ -314,6 +326,22 @@ Run locale tests with:
 ```bash
 pytest tests/test_i18n.py -q
 ```
+
+## Manual source sync
+
+Authenticated investigators can trigger shared evidence downloads from the DB status popover in `/app`. Updates run against the configured sync plan and benefit every user of the instance.
+
+| Env var | Default | Purpose |
+|---------|---------|---------|
+| `ALS_SYNC_PLAN` | `config/sync_plan.all_public_sources.json` | Sources and queries included in manual updates |
+| `ALS_MANUAL_SYNC_COOLDOWN_HOURS` | `6` | Blocks repeat manual triggers per scope (`all` or individual source) after a successful manual sync |
+
+API endpoints:
+
+- `GET /api/sync/manual/status` — cooldown state, in-progress status, and updatable source list
+- `POST /api/sync/manual/trigger` — body `{ "scope": "all" }` or `{ "source": "pubmed" }` (auth + CSRF required when auth is enabled)
+
+Adding a source to the sync plan JSON automatically adds it to the updatable list in the UI.
 
 Rate-limiting:
 

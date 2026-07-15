@@ -1,38 +1,24 @@
 from __future__ import annotations
 
-from als_intel.landing import LANDING_TEMPLATE, render_landing_page
+import pytest
+
+from als_intel.static_frontend import spa_available, serve_spa_or_static
 
 
-def test_landing_template_is_separate_from_app_page() -> None:
-    from als_intel.webui import PAGE_TEMPLATE
+@pytest.mark.skipif(not spa_available(), reason="frontend build not present")
+def test_spa_serves_landing_route() -> None:
+    from http.server import BaseHTTPRequestHandler
+    from io import BytesIO
+    from unittest.mock import MagicMock
 
-    assert LANDING_TEMPLATE.template != PAGE_TEMPLATE.template
-    assert "$hero_cta_label" in LANDING_TEMPLATE.template
-    assert "failureAtlasList" not in LANDING_TEMPLATE.template
-
-
-def test_render_landing_page_uses_local_assets_and_login_ctas() -> None:
-    body = render_landing_page(auth_enabled=True).decode("utf-8")
-    assert "Reduce ALS research uncertainty with traceable, cited intelligence" in body
-    assert "/assets/mtvl-ai-logo-lettermark.png" in body
-    assert "/assets/landing-dashboard-mockup.png" in body
-    assert "googleusercontent.com" not in body
-    assert 'href="/login"' in body
-    assert "Sign in to investigate" in body
-    assert "Not for patient diagnosis or treatment decisions" in body
-    assert 'id="database"' in body
-    assert 'id="landingDbWidget"' in body
-    assert "landingFetchDbStatus" in body
+    handler = MagicMock(spec=BaseHTTPRequestHandler)
+    handler.wfile = BytesIO()
+    assert serve_spa_or_static(handler, "/") is True
+    body = handler.wfile.getvalue().decode("utf-8")
+    assert 'id="app"' in body
 
 
-def test_render_landing_page_auth_disabled_links_to_app() -> None:
-    body = render_landing_page(auth_enabled=False).decode("utf-8")
-    assert 'href="/app"' in body
-    assert "Open investigator" in body
+def test_landing_module_still_exports_app_route() -> None:
+    from als_intel.landing import APP_ROUTE
 
-
-def test_render_landing_page_authenticated_links_to_app() -> None:
-    body = render_landing_page(auth_enabled=True, authenticated=True).decode("utf-8")
-    assert 'href="/app"' in body
-    assert "Continue investigating" in body
-    assert 'href="/login"' not in body
+    assert APP_ROUTE == "/app"

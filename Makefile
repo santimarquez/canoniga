@@ -23,9 +23,18 @@ SYNC_INTERVAL_SECONDS ?= 900
 SYNC_ALL_CYCLES ?= 1
 SYNC_ALL_INTERVAL_SECONDS ?= 0
 SYNC_STATS_LIMIT ?= 20
+NPM ?= $(shell PATH="/opt/homebrew/bin:/usr/local/bin:$$PATH" command -v npm 2>/dev/null)
+NODE ?= $(shell PATH="/opt/homebrew/bin:/usr/local/bin:$$PATH" command -v node 2>/dev/null)
+
+define require_npm
+	@if [ -z "$(NPM)" ]; then \
+		echo "npm not found. Install Node.js first, e.g. brew install node"; \
+		exit 127; \
+	fi
+endef
 HYPOTHESIS_LIMIT ?= 10
 
-.PHONY: help setup test lint init-db ingest-sample chat web-up web-down web-logs docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries test-extraction-fidelity train-eval-promote nightly-ops docker-nightly-ops
+.PHONY: help setup test lint init-db ingest-sample chat web-dev web-up web-down web-logs frontend-install frontend-build frontend-dev frontend-test docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries test-extraction-fidelity train-eval-promote nightly-ops docker-nightly-ops
 
 DOCKER_DEV_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 DOCKER_GPU_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml
@@ -38,6 +47,11 @@ help:
 	@echo "  init-db               Create the SQLite evidence database"
 	@echo "  ingest-sample         Ingest the sample evidence JSONL file"
 	@echo "  chat                  Run grounded chat from the CLI"
+	@echo "  frontend-install      Install frontend npm dependencies"
+	@echo "  frontend-build        Build Vue SPA into assets/dist"
+	@echo "  frontend-dev            Run Vite dev server (proxies API to :8000)"
+	@echo "  frontend-test           Run frontend unit tests"
+	@echo "  web-dev                 Run the web UI locally on :$(WEB_PORT) (uses .venv python)"
 	@echo "  web-up                Start the Docker web chat stack"
 	@echo "  web-down              Stop the Docker web chat stack"
 	@echo "  web-logs              Follow web chat container logs"
@@ -88,6 +102,25 @@ ingest-sample:
 
 chat:
 	$(ALS) chat --db $(DB_PATH) --model $(MODEL) --host $(OLLAMA_HOST) --interactive
+
+frontend-install:
+	$(require_npm)
+	cd frontend && $(NODE) scripts/sync-locales.mjs && $(NPM) ci
+
+frontend-build:
+	$(require_npm)
+	cd frontend && $(NODE) scripts/sync-locales.mjs && $(NPM) run build
+
+frontend-dev:
+	$(require_npm)
+	cd frontend && $(NODE) scripts/sync-locales.mjs && $(NPM) run dev
+
+frontend-test:
+	$(require_npm)
+	cd frontend && $(NPM) test
+
+web-dev:
+	$(PYTHON) -m als_intel.webui --db $(DB_PATH) --ollama-host $(OLLAMA_HOST) --model $(MODEL) --port $(WEB_PORT)
 
 web-up:
 	$(DOCKER_COMPOSE) up --build

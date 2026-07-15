@@ -1,7 +1,9 @@
 from pathlib import Path
 import sqlite3
 from typing import Any
+from unittest.mock import patch
 
+from als_intel.connectors import _kegg_find_query, fetch_go, fetch_kegg
 from als_intel.hypothesis import build_hypothesis_queue
 from als_intel.scheduler import run_scheduled_sync
 from als_intel.store import EvidenceStore
@@ -622,6 +624,44 @@ def test_kegg_sync_from_fixture(tmp_path: Path) -> None:
     rows = store.all_evidence()
     assert len(rows) == 2
     assert all(str(row["claim_id"]).startswith("KEGG_") for row in rows)
+
+
+def test_kegg_find_query_simplifies_boolean_plan_query() -> None:
+    query = "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)"
+    assert _kegg_find_query(query) == "amyotrophic lateral sclerosis"
+
+
+def test_fetch_kegg_url_encodes_search_query() -> None:
+    query = "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)"
+    captured: dict[str, str] = {}
+
+    def _capture(*, url: str, source_name: str | None = None, method: str = "GET", body: bytes | None = None, headers: dict[str, str] | None = None) -> str:
+        captured["url"] = url
+        captured["source_name"] = str(source_name or "")
+        return ""
+
+    with patch("als_intel.connectors._http_request_text", side_effect=_capture):
+        fetch_kegg(query=query, max_results=5)
+
+    assert captured["source_name"] == "kegg"
+    assert captured["url"] == "https://rest.kegg.jp/find/pathway/amyotrophic%20lateral%20sclerosis"
+
+
+def test_fetch_go_uses_quickgo_page_limit_for_unbounded_sync() -> None:
+    query = "(amyotrophic lateral sclerosis OR motor neuron disease OR ALS OR ELA OR SLA)"
+    captured: dict[str, str] = {}
+
+    def _capture(url: str, source_name: str | None = None) -> dict[str, object]:
+        captured["url"] = url
+        captured["source_name"] = str(source_name or "")
+        return {"results": []}
+
+    with patch("als_intel.connectors._http_get_json", side_effect=_capture):
+        fetch_go(query=query, max_results=0)
+
+    assert captured["source_name"] == "go"
+    assert "limit=600" in captured["url"]
+    assert "amyotrophic+lateral+sclerosis" in captured["url"]
 
 
 def test_pride_sync_from_fixture(tmp_path: Path) -> None:

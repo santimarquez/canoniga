@@ -8,7 +8,7 @@ This file orients AI agents working in the **canoniga** repository (`als-intel` 
 - Detect contradictions, track confidence drift, and rank hypotheses.
 - Run deterministic agents (literature, skeptic, debate, graph, repurposing).
 - Ground local LLM chat (Ollama) on in-database evidence.
-- Expose CLI and a monolithic HTTP web UI for investigators.
+- Expose CLI and a Vue SPA web UI (Vite + TypeScript) backed by a Python REST API.
 
 Design principles: **local-first**, **inspectable heuristics**, **human review gates**, **benchmark-gated model evaluation**.
 
@@ -29,7 +29,7 @@ flowchart LR
     end
     subgraph outputs [Outputs]
         CLI[cli.py]
-        WebUI[webui.py]
+        WebUI[webui.py API + SPA]
         Agents[agents/*]
         LLM[llm.py Ollama]
     end
@@ -45,7 +45,9 @@ flowchart LR
 
 | Layer | Path | Role |
 |-------|------|------|
-| Entry points | `src/als_intel/cli.py`, `__main__.py`, `webui.py` | CLI (38+ subcommands), HTTP server |
+| Entry points | `src/als_intel/cli.py`, `__main__.py`, `webui.py` | CLI (38+ subcommands), HTTP API + static SPA |
+| Frontend | `frontend/` | Vue 3 + TypeScript investigator UI |
+| Static | `src/als_intel/static_frontend.py`, `assets/dist/` | Built SPA assets |
 | Domain model | `src/als_intel/models.py` | `EvidenceRecord`, validation constants |
 | Persistence | `src/als_intel/store.py` | SQLite schema, queries, auth tables |
 | Ingestion | `src/als_intel/pipeline.py`, `ingest.py` | JSONL → scored records |
@@ -64,7 +66,7 @@ flowchart LR
 | `agents/`, `extractors/` | Low | Preferred extension points |
 | `cli.py` (new subcommands) | Medium | Follow existing argparse patterns |
 | `store.py` (~3.3k lines) | High | Schema changes need migration logic |
-| `webui.py` (~3.5k lines) | High | Add helpers near related handlers; avoid drive-by refactors |
+| `webui.py` (~3.6k lines) | High | API handlers only; UI in `frontend/` |
 
 ## Development workflow
 
@@ -104,12 +106,27 @@ make PYTHON=python3.11 test
 | `make benchmark-gate-strict` | Curated benchmark gate (CI strict) |
 | `make docker-up` | Docker stack + DB bootstrap + sample ingest |
 | `make docker-dev-up` | Hot-reload dev stack |
+| `make frontend-build` | Build Vue SPA into `assets/dist/` |
+| `make frontend-dev` | Vite dev server on `:5173` (proxies `/api` to `:8000`) |
+| `make web-dev` | Run API locally on `:8000` (uses `.venv` Python) |
 
 ### Run web UI locally
 
+Production-style (API serves built SPA on `:8000`):
+
 ```bash
-python -m als_intel.webui --db data/als_intel.sqlite --ollama-host http://localhost:11434 --model llama3.1:8b
+make frontend-build
+make web-dev
 ```
+
+Frontend hot reload (API on `:8000`, Vite on `:5173` — open `http://localhost:5173/`):
+
+```bash
+make web-dev       # terminal 1
+make frontend-dev  # terminal 2
+```
+
+i18n: source JSON lives in `src/als_intel/i18n/locales/`; sync copies into `frontend/src/i18n/locales/` via `frontend/scripts/sync-locales.mjs`. App keys are prefixed with `app.` in `frontend/src/i18n/index.ts`.
 
 ## Coding conventions
 
@@ -176,7 +193,7 @@ File-specific guidance lives in `.cursor/rules/`:
 - `project-core.mdc` — always-on project standards
 - `python-conventions.mdc` — Python patterns
 - `testing.mdc` — test conventions
-- `webui.mdc` — monolithic web UI guidance
+- `webui.mdc` — Vue frontend + Python API guidance
 - `extractors-agents.mdc` — agent and extractor extension patterns
 - `emails.mdc` — email template conventions
 

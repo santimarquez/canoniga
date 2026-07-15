@@ -319,8 +319,22 @@ CREATE TABLE IF NOT EXISTS kg_edges (
     event_time TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_evidence_entity_outcome
-ON evidence (entity, outcome, effect_direction);
+CREATE TABLE IF NOT EXISTS manual_sync_cooldowns (
+    scope TEXT NOT NULL PRIMARY KEY,
+    last_successful_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS manual_sync_source_durations (
+    source_name TEXT NOT NULL PRIMARY KEY,
+    sample_count INTEGER NOT NULL DEFAULT 0,
+    avg_duration_seconds REAL NOT NULL DEFAULT 0,
+    last_duration_seconds REAL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_manual_sync_source_durations_source
+ON manual_sync_source_durations (source_name);
 
 CREATE INDEX IF NOT EXISTS idx_evidence_entity_direction_claim_reliability
 ON evidence (entity, effect_direction, claim_id, reliability_score DESC);
@@ -3227,6 +3241,207 @@ class EvidenceStore:
         if row is None:
             return None
         return str(row[0])
+
+    def has_running_sync_run(self, *, max_age_minutes: int = 120) -> bool:
+        safe_minutes = max(1, min(int(max_age_minutes or 120), 24 * 60))
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=safe_minutes)).isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT id
+                FROM sync_runs
+                WHERE status = 'running' AND started_at >= ?
+                ORDER BY started_at DESC
+                LIMIT 1
+                """,
+                (cutoff,),
+            ).fetchone()
+        return row is not None
+
+    def reconcile_stale_sync_runs(self, *, worker_active: bool = False) -> int:
+        """Mark orphaned running sync_runs as failed when no worker is active."""
+        if worker_active:
+            return 0
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE sync_runs
+                SET status = 'failed',
+                    ended_at = ?,
+                    notes = CASE
+                        WHEN notes IS NULL OR TRIM(notes) = '' THEN 'interrupted (no active sync worker)'
+                        ELSE notes || ' [interrupted: no active sync worker]'
+                    END
+                WHERE status = 'running'
+                """,
+                (now_iso,),
+            )
+            conn.commit()
+            return int(cur.rowcount or 0)
+
+    def record_manual_sync_success(self, scope: str, *, completed_at: str | None = None) -> None:
+        normalized_scope = str(scope).strip().lower()
+        if not normalized_scope:
+            return
+        now_iso = completed_at or datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO manual_sync_cooldowns (scope, last_successful_at, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(scope) DO UPDATE SET
+                    last_successful_at = excluded.last_successful_at,
+                    updated_at = excluded.updated_at
+                """,
+                (normalized_scope, now_iso, now_iso),
+            )
+            conn.commit()
+
+    def manual_sync_last_successful_at(self, scope: str) -> str | None:
+        normalized_scope = str(scope).strip().lower()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT last_successful_at
+                FROM manual_sync_cooldowns
+                WHERE scope = ?
+                """,
+                (normalized_scope,),
+            ).fetchone()
+        if row is None:
+            return None
+        value = str(row[0] or "").strip()
+        return value or None
+
+    def record_manual_sync_source_duration(self, source_name: str, duration_seconds: float) -> None:
+        normalized_source = str(source_name).strip().lower()
+        if not normalized_source:
+            return
+        duration = max(1.0, float(duration_seconds))
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT sample_count, avg_duration_seconds
+                FROM manual_sync_source_durations
+                WHERE source_name = ?
+                """,
+                (normalized_source,),
+            ).fetchone()
+            if row is None:
+                sample_count = 1
+                avg_duration = duration
+            else:
+                sample_count = int(row[0] or 0) + 1
+                previous_avg = float(row[1] or 0.0)
+                avg_duration = ((previous_avg * (sample_count - 1)) + duration) / sample_count
+            conn.execute(
+                """
+                INSERT INTO manual_sync_source_durations (
+                    source_name, sample_count, avg_duration_seconds, last_duration_seconds, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(source_name) DO UPDATE SET
+                    sample_count = excluded.sample_count,
+                    avg_duration_seconds = excluded.avg_duration_seconds,
+                    last_duration_seconds = excluded.last_duration_seconds,
+                    updated_at = excluded.updated_at
+                """,
+                (normalized_source, sample_count, avg_duration, duration, now_iso),
+            )
+            conn.commit()
+
+    def get_source_duration_estimate(self, source_name: str, *, default_seconds: float = 120.0) -> float:
+        normalized_source = str(source_name).strip().lower()
+        if not normalized_source:
+            return max(1.0, float(default_seconds))
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT avg_duration_seconds
+                FROM manual_sync_source_durations
+                WHERE source_name = ?
+                """,
+                (normalized_source,),
+            ).fetchone()
+            if row is not None and float(row[0] or 0.0) > 0:
+                return float(row[0])
+            history = conn.execute(
+                """
+                SELECT AVG(
+                    (julianday(ended_at) - julianday(started_at)) * 86400.0
+                )
+                FROM sync_runs
+                WHERE source_name = ?
+                  AND status = 'ok'
+                  AND ended_at IS NOT NULL
+                  AND started_at IS NOT NULL
+                """,
+                (normalized_source,),
+            ).fetchone()
+        if history is not None and history[0] is not None and float(history[0]) > 0:
+            return float(history[0])
+        return max(1.0, float(default_seconds))
+
+    def get_source_sync_activity(self, source_name: str) -> dict[str, object]:
+        normalized_source = str(source_name).strip().lower()
+        sync_state = self.get_sync_state(normalized_source) or {}
+        last_successful_at = str(sync_state.get("last_successful_timestamp", "") or "").strip()
+        last_attempt_at = ""
+        last_attempt_status = ""
+        last_attempt_notes = ""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT status, ended_at, started_at, notes
+                FROM sync_runs
+                WHERE source_name = ?
+                ORDER BY COALESCE(ended_at, started_at) DESC, id DESC
+                LIMIT 1
+                """,
+                (normalized_source,),
+            ).fetchone()
+            duration_row = conn.execute(
+                """
+                SELECT updated_at
+                FROM manual_sync_source_durations
+                WHERE source_name = ?
+                """,
+                (normalized_source,),
+            ).fetchone()
+        if row is not None:
+            last_attempt_status = str(row[0] or "").strip()
+            last_attempt_at = str(row[1] or row[2] or "").strip()
+            last_attempt_notes = str(row[3] or "").strip()
+        manual_updated_at = ""
+        if duration_row is not None:
+            manual_updated_at = str(duration_row[0] or "").strip()
+        return {
+            "last_successful_at": last_successful_at,
+            "last_attempt_at": last_attempt_at,
+            "last_attempt_status": last_attempt_status,
+            "last_attempt_notes": last_attempt_notes,
+            "last_manual_sync_at": manual_updated_at,
+        }
+
+    def list_sync_states(self) -> list[dict[str, object]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT source_name, last_successful_timestamp, failure_count, updated_at
+                FROM sync_state
+                ORDER BY source_name ASC
+                """
+            ).fetchall()
+        return [
+            {
+                "source_name": str(row[0]),
+                "last_successful_timestamp": str(row[1] or ""),
+                "failure_count": int(row[2] or 0),
+                "updated_at": str(row[3] or ""),
+            }
+            for row in rows
+        ]
 
     def register_model(
         self,

@@ -5,7 +5,7 @@ import re
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 
@@ -584,8 +584,9 @@ def fetch_go(query: str, max_results: int = 20, from_file: str | None = None) ->
     if from_file:
         return json.loads(Path(from_file).read_text(encoding="utf-8"))
 
+    search_query = _simplify_boolean_query(query)
     target = _target_limit(max_results)
-    page_size = 1000
+    page_size = 600
     page = 1
     rows: list[dict[str, Any]] = []
 
@@ -602,7 +603,7 @@ def fetch_go(query: str, max_results: int = 20, from_file: str | None = None) ->
             "https://www.ebi.ac.uk/QuickGO/services/ontology/go/search?"
             + urlencode(
                 {
-                    "query": query,
+                    "query": search_query,
                     "limit": str(current_page_size),
                     "page": str(page),
                 }
@@ -844,12 +845,29 @@ def fetch_arrayexpress(query: str, max_results: int = 20, from_file: str | None 
     return docs
 
 
+def _simplify_boolean_query(query: str, *, default: str = "als") -> str:
+    cleaned = str(query or "").strip()
+    if cleaned.startswith("(") and cleaned.endswith(")"):
+        cleaned = cleaned[1:-1].strip()
+    cleaned = cleaned.replace('"', "")
+    parts = [part.strip() for part in re.split(r"\s+OR\s+", cleaned, flags=re.IGNORECASE) if part.strip()]
+    if not parts:
+        return default
+    return max(parts, key=len)
+
+
+def _kegg_find_query(query: str) -> str:
+    return _simplify_boolean_query(query)
+
+
 def fetch_kegg(query: str, max_results: int = 20, from_file: str | None = None) -> list[dict[str, Any]]:
     """Fetch KEGG pathways via KEGG REST find endpoint."""
     if from_file:
         return json.loads(Path(from_file).read_text(encoding="utf-8"))
 
-    url = f"https://rest.kegg.jp/find/pathway/{query}"
+    search_query = _kegg_find_query(query)
+    encoded_query = quote(search_query, safe="")
+    url = f"https://rest.kegg.jp/find/pathway/{encoded_query}"
     text = _http_request_text(url=url, source_name="kegg", method="GET")
 
     target = _target_limit(max_results)
