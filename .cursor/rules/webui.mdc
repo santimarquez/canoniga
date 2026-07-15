@@ -35,3 +35,5 @@ make frontend-dev   # Vite on :5173, proxies /api to :8000
 Open `http://localhost:5173/` in dev (not `/app-assets/`). Production builds use `base: /app-assets/` and are served from `assets/dist/`.
 
 Database explorer (`DbExplorerModal.vue`): fixed-height modal, infinite-scroll list, in-modal node detail with source links, reliability breakdowns, and dotted-underline field helpers (`UiFieldHelp`).
+
+Settings (`SettingsDrawer.vue`): editable section (language, temperature/timeout sliders with visible helper text); read-only section (model, host, context limit from `/api/status`). Shared form primitives: `UiInput`, `UiSelect`, `UiSliderField`. `status` store seeds `app.config` once from `/api/status` on first refresh.

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { fetchStatus } from '@/api/auth'
 import { fetchManualSyncStatus, triggerManualSync } from '@/api/app'
+import { useAppStore } from '@/stores/app'
 import type { ManualSyncStatusResponse, NoticeOptions, StatusResponse } from '@/types/api'
 
 export const useStatusStore = defineStore('status', {
@@ -11,12 +12,27 @@ export const useStatusStore = defineStore('status', {
     wasActive: false,
     flash: null as NoticeOptions | null,
     flashTimer: null as ReturnType<typeof setTimeout> | null,
+    configSeeded: false,
   }),
   actions: {
+    applyServerConfig(data: StatusResponse) {
+      const app = useAppStore()
+      app.setConfig({
+        model: data.model,
+        host: data.host,
+        contextLimit: data.context_limit,
+        temperature: data.temperature,
+        timeoutSeconds: data.timeout_seconds,
+      })
+      this.configSeeded = true
+    },
     async refresh() {
       const data = await fetchStatus()
       this.snapshot = data
       this.manualSync = data.manual_sync
+      if (!this.configSeeded) {
+        this.applyServerConfig(data)
+      }
       return data
     },
     async refreshManualSync() {

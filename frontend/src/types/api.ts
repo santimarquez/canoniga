@@ -91,6 +91,10 @@ export interface StatusResponse {
   contradicts_count: number
   review_flags_count: number
   model: string
+  host: string
+  context_limit: number
+  temperature: number
+  timeout_seconds: number
   db_synced: boolean
   source_breakdown: SourceBreakdownRow[]
   latest_sync_at: string | null
