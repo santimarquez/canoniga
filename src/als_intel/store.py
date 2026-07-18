@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import os
-import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from als_intel.db import PgConnection, apply_migrations, connect, resolve_dsn, truncate_all_tables
 from als_intel.models import EvidenceRecord
 
 
@@ -28,445 +28,25 @@ SOURCE_DISPLAY_NAMES = {
 }
 
 
-SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS evidence (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    claim_id TEXT NOT NULL UNIQUE,
-    claim_text TEXT NOT NULL,
-    disease TEXT NOT NULL,
-    entity TEXT NOT NULL,
-    relation TEXT NOT NULL,
-    outcome TEXT NOT NULL,
-    effect_direction TEXT NOT NULL,
-    study_type TEXT NOT NULL,
-    sample_size INTEGER NOT NULL,
-    endpoint_validity REAL NOT NULL,
-    replication_count INTEGER NOT NULL,
-    peer_reviewed INTEGER NOT NULL,
-    year INTEGER NOT NULL,
-    source_title TEXT NOT NULL,
-    source_doi TEXT NOT NULL,
-    cohort TEXT NOT NULL DEFAULT 'unknown',
-    model_system TEXT NOT NULL DEFAULT 'unspecified',
-    source_type TEXT NOT NULL DEFAULT 'journal',
-    extraction_confidence REAL NOT NULL DEFAULT 1.0,
-    causal_evidence_type TEXT NOT NULL DEFAULT 'observational',
-    ingested_at TEXT NOT NULL DEFAULT '',
-    source_reliability_score REAL NOT NULL DEFAULT 0.0,
-    reliability_score REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS evidence_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    claim_id TEXT NOT NULL,
-    event_time TEXT NOT NULL,
-    reliability_score REAL NOT NULL,
-    study_component REAL NOT NULL,
-    sample_component REAL NOT NULL,
-    replication_component REAL NOT NULL,
-    peer_component REAL NOT NULL,
-    endpoint_component REAL NOT NULL,
-    source_component REAL NOT NULL,
-    extraction_component REAL NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS sync_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_name TEXT NOT NULL,
-    query TEXT NOT NULL,
-    started_at TEXT NOT NULL,
-    ended_at TEXT,
-    records_seen INTEGER NOT NULL DEFAULT 0,
-    inserted_count INTEGER NOT NULL DEFAULT 0,
-    updated_count INTEGER NOT NULL DEFAULT 0,
-    unchanged_count INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'running',
-    notes TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS sync_state (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_name TEXT NOT NULL UNIQUE,
-    last_sync_run_id INTEGER,
-    last_sync_timestamp TEXT,
-    last_successful_timestamp TEXT,
-    failure_count INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY(last_sync_run_id) REFERENCES sync_runs(id)
-);
-
-CREATE TABLE IF NOT EXISTS sync_stage_state (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_name TEXT NOT NULL,
-    stage_name TEXT NOT NULL,
-    last_sync_run_id INTEGER,
-    last_sync_timestamp TEXT,
-    last_successful_timestamp TEXT,
-    failure_count INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY(last_sync_run_id) REFERENCES sync_runs(id),
-    UNIQUE(source_name, stage_name)
-);
-
-CREATE TABLE IF NOT EXISTS evidence_source_metadata (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    claim_id TEXT NOT NULL UNIQUE,
-    source_name TEXT NOT NULL,
-    source_id TEXT NOT NULL,
-    abstract_text TEXT NOT NULL DEFAULT '',
-    journal TEXT NOT NULL DEFAULT '',
-    pubdate TEXT NOT NULL DEFAULT '',
-    authors_json TEXT NOT NULL DEFAULT '[]',
-    mesh_terms_json TEXT NOT NULL DEFAULT '[]',
-    affiliations_json TEXT NOT NULL DEFAULT '[]',
-    references_json TEXT NOT NULL DEFAULT '[]',
-    metadata_json TEXT NOT NULL DEFAULT '{}',
-    enriched_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS evidence_change_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id INTEGER NOT NULL,
-    claim_id TEXT NOT NULL,
-    change_type TEXT NOT NULL,
-    source_name TEXT NOT NULL,
-    changed_at TEXT NOT NULL,
-    FOREIGN KEY(run_id) REFERENCES sync_runs(id)
-);
-
-CREATE TABLE IF NOT EXISTS review_decisions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    claim_id TEXT NOT NULL,
-    decision TEXT NOT NULL,
-    reviewer TEXT NOT NULL,
-    notes TEXT NOT NULL DEFAULT '',
-    decided_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS investigator_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL DEFAULT '',
-    session_id TEXT NOT NULL UNIQUE,
-    title TEXT NOT NULL DEFAULT '',
-    question TEXT NOT NULL DEFAULT '',
-    messages_json TEXT NOT NULL DEFAULT '[]',
-    report_json TEXT NOT NULL DEFAULT '{}',
-    filters_json TEXT NOT NULL DEFAULT '{}',
-    evidence_claim_ids_json TEXT NOT NULL DEFAULT '[]',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL UNIQUE,
-    email TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL,
-    last_login_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS auth_magic_links (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    consumed_at TEXT,
-    requested_ip TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS auth_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,
-    token_hash TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    last_seen_at TEXT,
-    revoked_at TEXT,
-    user_agent TEXT NOT NULL DEFAULT '',
-    ip_address TEXT NOT NULL DEFAULT '',
-    FOREIGN KEY(user_id) REFERENCES users(user_id)
-);
-
-CREATE TABLE IF NOT EXISTS user_activity (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,
-    activity_type TEXT NOT NULL,
-    endpoint TEXT NOT NULL,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(user_id) REFERENCES users(user_id)
-);
-
-CREATE TABLE IF NOT EXISTS investigation_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_id TEXT NOT NULL UNIQUE,
-    user_id TEXT NOT NULL,
-    idempotency_key TEXT NOT NULL DEFAULT '',
-    objective TEXT NOT NULL,
-    filters_json TEXT NOT NULL DEFAULT '{}',
-    require_review_signoff INTEGER NOT NULL DEFAULT 0,
-    scheduled_for TEXT,
-    attempt_count INTEGER NOT NULL DEFAULT 0,
-    max_attempts INTEGER NOT NULL DEFAULT 1,
-    status TEXT NOT NULL,
-    replay_of_run_id TEXT NOT NULL DEFAULT '',
-    report_json TEXT NOT NULL DEFAULT '{}',
-    quality_gate_json TEXT NOT NULL DEFAULT '{}',
-    replay_diff_json TEXT NOT NULL DEFAULT '{}',
-    approval_status TEXT NOT NULL DEFAULT 'pending',
-    approved_by TEXT NOT NULL DEFAULT '',
-    approved_at TEXT,
-    rollback_run_id TEXT NOT NULL DEFAULT '',
-    rolled_back_at TEXT,
-    export_status TEXT NOT NULL DEFAULT 'not_exported',
-    created_at TEXT NOT NULL,
-    started_at TEXT,
-    completed_at TEXT,
-    error_text TEXT NOT NULL DEFAULT '',
-    FOREIGN KEY(user_id) REFERENCES users(user_id)
-);
-
-CREATE TABLE IF NOT EXISTS investigation_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    template_id TEXT NOT NULL UNIQUE,
-    user_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    objective TEXT NOT NULL,
-    filters_json TEXT NOT NULL DEFAULT '{}',
-    require_review_signoff INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    last_used_at TEXT,
-    FOREIGN KEY(user_id) REFERENCES users(user_id)
-);
-
-CREATE TABLE IF NOT EXISTS automation_experiments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    experiment_id TEXT NOT NULL UNIQUE,
-    user_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    objective TEXT NOT NULL,
-    filters_json TEXT NOT NULL DEFAULT '{}',
-    variant_a_json TEXT NOT NULL DEFAULT '{}',
-    variant_b_json TEXT NOT NULL DEFAULT '{}',
-    result_json TEXT NOT NULL DEFAULT '{}',
-    winner_variant TEXT NOT NULL DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'completed',
-    created_at TEXT NOT NULL,
-    FOREIGN KEY(user_id) REFERENCES users(user_id)
-);
-
-CREATE TABLE IF NOT EXISTS automation_exports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    delivery_id TEXT NOT NULL UNIQUE,
-    user_id TEXT NOT NULL,
-    run_id TEXT NOT NULL,
-    channel TEXT NOT NULL,
-    payload_json TEXT NOT NULL DEFAULT '{}',
-    result_json TEXT NOT NULL DEFAULT '{}',
-    status TEXT NOT NULL,
-    error_text TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL,
-    delivered_at TEXT,
-    FOREIGN KEY(user_id) REFERENCES users(user_id)
-);
-
-CREATE TABLE IF NOT EXISTS model_registry (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    model_id TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL,
-    base_model TEXT NOT NULL,
-    adapter_path TEXT NOT NULL,
-    dataset_manifest_path TEXT NOT NULL,
-    training_config_json TEXT NOT NULL,
-    metrics_json TEXT NOT NULL,
-    status TEXT NOT NULL,
-    notes TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS model_evaluations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    evaluation_id TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL,
-    candidate_model_id TEXT NOT NULL,
-    baseline_model_id TEXT NOT NULL DEFAULT '',
-    benchmark_manifest_path TEXT NOT NULL,
-    metrics_json TEXT NOT NULL,
-    gate_json TEXT NOT NULL,
-    status TEXT NOT NULL,
-    notes TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS kg_nodes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    node_key TEXT NOT NULL UNIQUE,
-    node_type TEXT NOT NULL,
-    label TEXT NOT NULL,
-    meta_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS kg_edges (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_key TEXT NOT NULL,
-    target_key TEXT NOT NULL,
-    edge_type TEXT NOT NULL,
-    polarity TEXT NOT NULL,
-    weight REAL NOT NULL,
-    relation TEXT NOT NULL DEFAULT '',
-    evidence_claim_id TEXT NOT NULL,
-    event_time TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS manual_sync_cooldowns (
-    scope TEXT NOT NULL PRIMARY KEY,
-    last_successful_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS manual_sync_source_durations (
-    source_name TEXT NOT NULL PRIMARY KEY,
-    sample_count INTEGER NOT NULL DEFAULT 0,
-    avg_duration_seconds REAL NOT NULL DEFAULT 0,
-    last_duration_seconds REAL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS manual_sync_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    scope TEXT NOT NULL,
-    triggered_by TEXT NOT NULL DEFAULT '',
-    started_at TEXT NOT NULL,
-    ended_at TEXT,
-    status TEXT NOT NULL DEFAULT 'running',
-    error TEXT NOT NULL DEFAULT '',
-    run_ids_json TEXT NOT NULL DEFAULT '[]',
-    notes TEXT NOT NULL DEFAULT ''
-);
-
-CREATE INDEX IF NOT EXISTS idx_manual_sync_source_durations_source
-ON manual_sync_source_durations (source_name);
-
-CREATE INDEX IF NOT EXISTS idx_manual_sync_events_scope_started
-ON manual_sync_events (scope, started_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_evidence_entity_direction_claim_reliability
-ON evidence (entity, effect_direction, claim_id, reliability_score DESC);
-
-CREATE INDEX IF NOT EXISTS idx_evidence_history_claim_time
-ON evidence_history (claim_id, event_time);
-
-CREATE INDEX IF NOT EXISTS idx_change_log_run
-ON evidence_change_log (run_id, claim_id);
-
-CREATE INDEX IF NOT EXISTS idx_sync_state_source
-ON sync_state (source_name);
-
-CREATE INDEX IF NOT EXISTS idx_sync_stage_state_source_stage
-ON sync_stage_state (source_name, stage_name);
-
-CREATE INDEX IF NOT EXISTS idx_evidence_source_metadata_source
-ON evidence_source_metadata (source_name, source_id, enriched_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_review_decisions_claim
-ON review_decisions (claim_id, decided_at);
-
-CREATE INDEX IF NOT EXISTS idx_investigator_sessions_updated
-ON investigator_sessions (updated_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_users_email
-ON users (email);
-
-CREATE INDEX IF NOT EXISTS idx_auth_magic_links_email_expires
-ON auth_magic_links (email, expires_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_expires
-ON auth_sessions (user_id, expires_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_user_activity_user_created
-ON user_activity (user_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_investigation_runs_user_created
-ON investigation_runs (user_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_investigation_runs_status
-ON investigation_runs (status, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_investigation_templates_user_updated
-ON investigation_templates (user_id, updated_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_automation_experiments_user_created
-ON automation_experiments (user_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_automation_exports_user_created
-ON automation_exports (user_id, created_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_model_registry_created_at
-ON model_registry (created_at);
-
-CREATE INDEX IF NOT EXISTS idx_model_evaluations_candidate
-ON model_evaluations (candidate_model_id, created_at);
-
-CREATE INDEX IF NOT EXISTS idx_kg_nodes_key
-ON kg_nodes (node_key, node_type);
-
-CREATE INDEX IF NOT EXISTS idx_kg_edges_source_target
-ON kg_edges (source_key, target_key, edge_type);
-"""
-
-
-MIGRATION_COLUMNS = {
-    "cohort": "TEXT NOT NULL DEFAULT 'unknown'",
-    "model_system": "TEXT NOT NULL DEFAULT 'unspecified'",
-    "source_type": "TEXT NOT NULL DEFAULT 'journal'",
-    "extraction_confidence": "REAL NOT NULL DEFAULT 1.0",
-    "causal_evidence_type": "TEXT NOT NULL DEFAULT 'observational'",
-    "ingested_at": "TEXT NOT NULL DEFAULT ''",
-    "source_reliability_score": "REAL NOT NULL DEFAULT 0.0",
-}
-
-INVESTIGATOR_SESSION_MIGRATION_COLUMNS = {
-    "user_id": "TEXT NOT NULL DEFAULT ''",
-}
-
-INVESTIGATION_RUN_MIGRATION_COLUMNS = {
-    "idempotency_key": "TEXT NOT NULL DEFAULT ''",
-    "require_review_signoff": "INTEGER NOT NULL DEFAULT 0",
-    "scheduled_for": "TEXT",
-    "attempt_count": "INTEGER NOT NULL DEFAULT 0",
-    "max_attempts": "INTEGER NOT NULL DEFAULT 1",
-    "approval_status": "TEXT NOT NULL DEFAULT 'pending'",
-    "approved_by": "TEXT NOT NULL DEFAULT ''",
-    "approved_at": "TEXT",
-    "rollback_run_id": "TEXT NOT NULL DEFAULT ''",
-    "rolled_back_at": "TEXT",
-    "export_status": "TEXT NOT NULL DEFAULT 'not_exported'",
-}
-
-USER_PROFILE_MIGRATION_COLUMNS = {
-    "display_name": "TEXT NOT NULL DEFAULT ''",
-    "title": "TEXT NOT NULL DEFAULT ''",
-    "institution": "TEXT NOT NULL DEFAULT ''",
-    "avatar_data": "BLOB",
-    "avatar_mime_type": "TEXT NOT NULL DEFAULT ''",
-    "profile_updated_at": "TEXT",
-}
-
-
 class EvidenceStore:
-    def __init__(self, db_path: str | Path) -> None:
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(self, dsn: str | Path | None = None) -> None:
+        raw = str(dsn) if dsn is not None else None
+        self.dsn = resolve_dsn(raw)
+        # Back-compat attribute used by a few callers/tests for display.
+        self.db_path = self.dsn
 
-    def _connect(self) -> sqlite3.Connection:
-        timeout_seconds = max(1.0, float(os.getenv("ALS_SQLITE_TIMEOUT_SECONDS", "30")))
-        busy_timeout_ms = max(1000, int(os.getenv("ALS_SQLITE_BUSY_TIMEOUT_MS", "30000")))
-        conn = sqlite3.connect(self.db_path, timeout=timeout_seconds)
-        conn.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
+    def _connect(self) -> PgConnection:
+        return connect(self.dsn)
+
+    def init_db(self) -> None:
+        with self._connect() as conn:
+            apply_migrations(conn)
+
+    def reset_all_data(self) -> None:
+        """Truncate all application tables (tests / re-seed)."""
+        with self._connect() as conn:
+            apply_migrations(conn)
+            truncate_all_tables(conn)
 
     def _map_evidence_rows(self, rows: list[tuple[object, ...]]) -> list[dict[str, str | int | float | bool]]:
         output: list[dict[str, str | int | float | bool]] = []
@@ -538,68 +118,6 @@ class EvidenceStore:
     def all_evidence_with_provenance(self) -> list[dict[str, object]]:
         return self.attach_extraction_provenance(self.all_evidence())
 
-    def init_db(self) -> None:
-        with self._connect() as conn:
-            conn.executescript(SCHEMA_SQL)
-            self._migrate_evidence_table(conn)
-            self._migrate_investigator_sessions_table(conn)
-            self._migrate_investigation_runs_table(conn)
-            self._migrate_users_table(conn)
-            conn.commit()
-
-    def _migrate_evidence_table(self, conn: sqlite3.Connection) -> None:
-        existing_cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(evidence)").fetchall()
-        }
-        for col_name, col_def in MIGRATION_COLUMNS.items():
-            if col_name not in existing_cols:
-                conn.execute(f"ALTER TABLE evidence ADD COLUMN {col_name} {col_def}")
-
-    def _migrate_investigator_sessions_table(self, conn: sqlite3.Connection) -> None:
-        existing_cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(investigator_sessions)").fetchall()
-        }
-        for col_name, col_def in INVESTIGATOR_SESSION_MIGRATION_COLUMNS.items():
-            if col_name not in existing_cols:
-                conn.execute(f"ALTER TABLE investigator_sessions ADD COLUMN {col_name} {col_def}")
-        refreshed_cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(investigator_sessions)").fetchall()
-        }
-        if "user_id" in refreshed_cols:
-            conn.execute(
-                """
-                CREATE INDEX IF NOT EXISTS idx_investigator_sessions_user
-                ON investigator_sessions (user_id, updated_at DESC)
-                """
-            )
-
-    def _migrate_investigation_runs_table(self, conn: sqlite3.Connection) -> None:
-        existing_cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(investigation_runs)").fetchall()
-        }
-        for col_name, col_def in INVESTIGATION_RUN_MIGRATION_COLUMNS.items():
-            if col_name not in existing_cols:
-                conn.execute(f"ALTER TABLE investigation_runs ADD COLUMN {col_name} {col_def}")
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_investigation_runs_user_idempotency
-            ON investigation_runs (user_id, idempotency_key)
-            """
-        )
-
-    def _migrate_users_table(self, conn: sqlite3.Connection) -> None:
-        existing_cols = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(users)").fetchall()
-        }
-        for col_name, col_def in USER_PROFILE_MIGRATION_COLUMNS.items():
-            if col_name not in existing_cols:
-                conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
-
     def _row_to_user_profile(
         self,
         row: tuple[object, ...],
@@ -607,7 +125,9 @@ class EvidenceStore:
         include_avatar_bytes: bool,
     ) -> dict[str, object]:
         avatar_bytes = row[5] if row[5] is not None else b""
-        if not isinstance(avatar_bytes, (bytes, bytearray)):
+        if isinstance(avatar_bytes, memoryview):
+            avatar_bytes = avatar_bytes.tobytes()
+        elif not isinstance(avatar_bytes, (bytes, bytearray)):
             avatar_bytes = bytes(avatar_bytes)
         profile = {
             "user_id": str(row[0] or ""),
@@ -847,11 +367,13 @@ class EvidenceStore:
                 """
                 INSERT INTO sync_runs (source_name, query, started_at, status)
                 VALUES (?, ?, ?, 'running')
+                RETURNING id
                 """,
                 (source_name, query, now_iso),
             )
+            row = cur.fetchone()
             conn.commit()
-            return int(cur.lastrowid)
+            return int(row[0]) if row else 0
 
     def finish_sync_run(
         self,
@@ -1446,7 +968,7 @@ class EvidenceStore:
             target = conn.execute(
                 """
                 SELECT claim_id, claim_text, entity, relation, outcome, effect_direction,
-                       source_doi, reliability_score
+                       study_type, year, source_doi, reliability_score, cohort, model_system
                 FROM evidence
                 WHERE claim_id = ?
                 """,
@@ -1456,7 +978,20 @@ class EvidenceStore:
             if target is None:
                 raise ValueError(f"Unknown claim_id: {claim_id}")
 
-            t_claim_id, t_text, t_entity, t_relation, t_outcome, t_dir, t_doi, t_score = target
+            (
+                t_claim_id,
+                t_text,
+                t_entity,
+                t_relation,
+                t_outcome,
+                t_dir,
+                t_study_type,
+                t_year,
+                t_doi,
+                t_score,
+                t_cohort,
+                t_model,
+            ) = target
 
             related = conn.execute(
                 """
@@ -1496,8 +1031,12 @@ class EvidenceStore:
                 "relation": t_relation,
                 "outcome": t_outcome,
                 "effect_direction": t_dir,
+                "study_type": t_study_type,
+                "year": int(t_year or 0),
                 "source_doi": t_doi,
                 "reliability_score": float(t_score),
+                "cohort": t_cohort,
+                "model_system": t_model,
             },
             "lineage": {
                 "supporting_citations": supporting,
@@ -2235,6 +1774,7 @@ class EvidenceStore:
                   AND COALESCE(scheduled_for, created_at) <= ?
                 ORDER BY COALESCE(scheduled_for, created_at) ASC
                 LIMIT ?
+                FOR UPDATE SKIP LOCKED
                 """,
                 (now_iso, safe_limit),
             ).fetchall()
@@ -3343,11 +2883,13 @@ class EvidenceStore:
                 """
                 INSERT INTO manual_sync_events (scope, triggered_by, started_at, status)
                 VALUES (?, ?, ?, 'running')
+                RETURNING id
                 """,
                 (normalized_scope, str(triggered_by or "").strip(), now_iso),
             )
+            row = cur.fetchone()
             conn.commit()
-            return int(cur.lastrowid)
+            return int(row[0]) if row else 0
 
     def finish_manual_sync_event(
         self,
@@ -3482,7 +3024,7 @@ class EvidenceStore:
             history = conn.execute(
                 """
                 SELECT AVG(
-                    (julianday(ended_at) - julianday(started_at)) * 86400.0
+                    EXTRACT(EPOCH FROM (ended_at::timestamptz - started_at::timestamptz))
                 )
                 FROM sync_runs
                 WHERE source_name = ?
@@ -3897,14 +3439,17 @@ class EvidenceStore:
                n2.label AS outcome_label,
                SUM(CASE WHEN e.polarity='supports' THEN 1 ELSE 0 END) AS supports,
                SUM(CASE WHEN e.polarity='contradicts' THEN 1 ELSE 0 END) AS contradicts,
-               ROUND(AVG(e.weight), 4) AS avg_weight
+               ROUND(AVG(e.weight)::numeric, 4) AS avg_weight
         FROM kg_edges e
         JOIN kg_nodes n1 ON n1.node_key = e.source_key
         JOIN kg_nodes n2 ON n2.node_key = e.target_key
         WHERE e.edge_type='affects_outcome'
           {where_clause}
         GROUP BY n1.label, n2.label
-        ORDER BY (supports + contradicts) DESC, avg_weight DESC
+        ORDER BY (
+            SUM(CASE WHEN e.polarity='supports' THEN 1 ELSE 0 END)
+            + SUM(CASE WHEN e.polarity='contradicts' THEN 1 ELSE 0 END)
+        ) DESC, ROUND(AVG(e.weight)::numeric, 4) DESC
         LIMIT ?
         """
 

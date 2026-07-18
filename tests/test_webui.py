@@ -14,6 +14,7 @@ from als_intel.webui import (
     _build_chat_prompt,
     _build_synthesis,
     _governance_doc_body,
+    _prioritize_evidence_rows_for_question,
     _rank_cited_evidence_rows,
     _search_evidence_rows,
 )
@@ -45,6 +46,22 @@ def test_build_chat_prompt_uses_latest_user_message_and_context() -> None:
     assert "What is the uncertainty?" in prompt
     assert "claim_id=C1" in prompt
     assert "Conversation history:" in prompt
+
+
+def test_prioritize_evidence_rows_for_question_puts_mentioned_ids_first() -> None:
+    rows = [
+        {"claim_id": "C_LOW", "reliability_score": 0.9},
+        {"claim_id": "CTGOV_NCT00561366", "reliability_score": 0.4},
+        {"claim_id": "PUBMED_39886777", "reliability_score": 0.5},
+    ]
+    prioritized = _prioritize_evidence_rows_for_question(
+        rows,
+        "Among cited claims (CTGOV_NCT00561366 and PUBMED_39886777) about sod1?",
+    )
+    assert [row["claim_id"] for row in prioritized[:2]] == [
+        "CTGOV_NCT00561366",
+        "PUBMED_39886777",
+    ]
 
 
 def test_apply_evidence_filters_respects_min_reliability_and_type() -> None:
@@ -98,7 +115,12 @@ def test_search_evidence_rows_matches_claim_id_and_doi() -> None:
 
 def test_build_synthesis_uses_only_grounded_sections() -> None:
     synthesis = _build_synthesis(
-        answer="Direct answer mentioning claim_id=C1\n**Contradictions or Uncertainty**\nNone noted",
+        answer=(
+            "## Direct Answer\n"
+            "Concise answer mentioning claim_id=C1\n\n"
+            "## Contradictions or Uncertainty\n"
+            "None noted"
+        ),
         evidence_rows=[
             {
                 "claim_id": "C1",
@@ -109,7 +131,7 @@ def test_build_synthesis_uses_only_grounded_sections() -> None:
         ],
         contradiction_rows=[],
     )
-    assert synthesis["direct_answer"]
+    assert synthesis["direct_answer"] == "Concise answer mentioning claim_id=C1"
     assert "C1" in synthesis.get("mentioned_claim_ids", [])
 
 
@@ -137,6 +159,145 @@ def test_apply_response_guardrails_fills_missing_claim_ids() -> None:
     )
     assert guarded["mentioned_claim_ids"] == ["C9"]
     assert "mentioned_claim_ids_filled" in flags
+    assert "executable_follow_up_query" not in guarded
+
+
+def test_build_synthesis_extracts_executable_follow_up_query() -> None:
+    synthesis = _build_synthesis(
+        answer=(
+            "## Direct Answer\n"
+            "Answer with C1\n\n"
+            "## Executable follow-up query\n"
+            "Among cited claims about SOD1, do cohorts disagree on survival?\n"
+        ),
+        evidence_rows=[
+            {
+                "claim_id": "C1",
+                "claim_text": "Claim",
+                "reliability_score": 0.8,
+                "source_doi": "10.1/x",
+            }
+        ],
+        contradiction_rows=[],
+    )
+    assert "Among cited claims about SOD1" in str(synthesis.get("executable_follow_up_query", ""))
+
+
+def test_apply_response_guardrails_prefers_llm_executable_query() -> None:
+    guarded, flags = _apply_response_guardrails(
+        answer="Draft",
+        synthesis={
+            "direct_answer": "Draft",
+            "supporting_claim_ids": ["CTGOV_NCT00561366", "PUBMED_39886777"],
+            "executable_follow_up_query": "Do SOD1 cohorts disagree on treatment response?",
+        },
+        evidence_rows=[
+            {
+                "claim_id": "CTGOV_NCT00561366",
+                "claim_text": "Claim",
+                "reliability_score": 0.8,
+                "source_doi": "10.1/x",
+                "entity": "sod1",
+                "outcome": "survival",
+                "effect_direction": "supports",
+            },
+            {
+                "claim_id": "PUBMED_39886777",
+                "claim_text": "Claim 2",
+                "reliability_score": 0.7,
+                "source_doi": "10.1/y",
+                "entity": "sod1",
+                "outcome": "alsfrs",
+                "effect_direction": "contradicts",
+            },
+        ],
+        contradiction_rows=[
+            {
+                "claim_a": "CTGOV_NCT00561366",
+                "claim_b": "PUBMED_39886777",
+                "entity": "sod1",
+                "outcome_a": "survival",
+                "outcome_b": "alsfrs",
+                "contradiction_type": "endpoint_mismatch",
+            }
+        ],
+        language="en",
+    )
+    query = str(guarded["executable_follow_up_query"])
+    assert "Do SOD1 cohorts disagree on treatment response" in query
+    assert "CTGOV_NCT00561366" in query
+    assert "PUBMED_39886777" in query
+    assert "executable_follow_up_query_from_llm" in flags
+
+
+def test_apply_response_guardrails_templates_executable_query_from_contradictions() -> None:
+    guarded, flags = _apply_response_guardrails(
+        answer="Draft",
+        synthesis={
+            "direct_answer": "Draft",
+            "supporting_claim_ids": ["CTGOV_NCT00561366", "PUBMED_39886777"],
+        },
+        evidence_rows=[
+            {
+                "claim_id": "CTGOV_NCT00561366",
+                "claim_text": "Claim",
+                "reliability_score": 0.8,
+                "source_doi": "10.1/x",
+            },
+            {
+                "claim_id": "PUBMED_39886777",
+                "claim_text": "Claim 2",
+                "reliability_score": 0.7,
+                "source_doi": "10.1/y",
+            },
+        ],
+        contradiction_rows=[
+            {
+                "claim_a": "CTGOV_NCT00561366",
+                "claim_b": "PUBMED_39886777",
+                "entity": "sod1",
+                "outcome_a": "survival",
+                "outcome_b": "alsfrs",
+                "contradiction_type": "endpoint_mismatch",
+            }
+        ],
+        language="en",
+    )
+    assert "executable_follow_up_query_templated" in flags
+    query = str(guarded.get("executable_follow_up_query", ""))
+    assert "sod1" in query.lower()
+    assert "endpoint" in query.lower()
+    assert "CTGOV_NCT00561366" in query
+    assert "PUBMED_39886777" in query
+
+
+def test_apply_response_guardrails_rejects_generic_and_external_executable_query() -> None:
+    guarded, flags = _apply_response_guardrails(
+        answer="Draft",
+        synthesis={
+            "direct_answer": "Draft",
+            "executable_follow_up_query": (
+                "Run a stratified follow-up validation focusing on cohort and endpoint differences."
+            ),
+        },
+        evidence_rows=[],
+        contradiction_rows=[],
+        language="en",
+    )
+    assert "executable_follow_up_query" not in guarded
+    assert "executable_follow_up_query_from_llm" not in flags
+
+    guarded_ext, _ = _apply_response_guardrails(
+        answer="Draft",
+        synthesis={
+            "direct_answer": "Draft",
+            "executable_follow_up_query": "Requires external integration: Query GTEx for expression.",
+        },
+        evidence_rows=[],
+        contradiction_rows=[],
+        language="en",
+    )
+    assert "executable_follow_up_query" not in guarded_ext
 
 
 def test_rank_cited_evidence_rows_orders_by_reliability_and_recency() -> None:
@@ -190,6 +351,7 @@ def test_serve_repo_asset_rejects_traversal() -> None:
 
 
 @pytest.mark.skipif(not spa_available(), reason="frontend build not present")
+def test_serve_spa_or_static_serves_index() -> None:
     handler = MagicMock(spec=BaseHTTPRequestHandler)
     handler.wfile = BytesIO()
     handled = serve_spa_or_static(handler, "/app")

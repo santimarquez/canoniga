@@ -5,6 +5,7 @@ import type {
   FailureAtlasResponse,
   HypothesisQueueResponse,
   ManualSyncStatusResponse,
+  ModelsResponse,
   ReviewDecisionsResponse,
   ReviewFlagsResponse,
   SessionDetailResponse,
@@ -15,6 +16,10 @@ import type { ChatMessage, ChatReport, EvidenceFilters } from '@/types/api'
 
 export function fetchManualSyncStatus() {
   return apiJson<ManualSyncStatusResponse>('/api/sync/manual/status')
+}
+
+export function fetchModels() {
+  return apiJson<ModelsResponse>('/api/models')
 }
 
 export function triggerManualSync(payload: { scope: 'all' } | { source: string }) {

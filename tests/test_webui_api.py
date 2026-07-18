@@ -20,8 +20,25 @@ from als_intel.webui import ChatHandler
 from http.server import ThreadingHTTPServer
 
 
-def _seed_evidence(db_path: Path) -> None:
-    store = EvidenceStore(db_path)
+_FAKE_MODEL_CATALOG = {
+    "host": "http://localhost:11434",
+    "default": "test-model",
+    "models": [
+        {"id": "test-model", "name": "test-model", "size": 1},
+        {"id": "qwen2.5:14b", "name": "qwen2.5:14b", "size": 2},
+        {"id": "gemma2:2b", "name": "gemma2:2b", "size": 3},
+    ],
+    "error": None,
+}
+
+
+@pytest.fixture(autouse=True)
+def _mock_ollama_model_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(webui, "list_ollama_models", lambda **_: dict(_FAKE_MODEL_CATALOG))
+
+
+def _seed_evidence(_unused: Path | None = None) -> None:
+    store = EvidenceStore()
     store.init_db()
 
     rows = [
@@ -246,6 +263,15 @@ def test_status_filter_search_compare_and_chat_routes(api_server: str) -> None:
     status_code, status_data = _request_json(api_server, "/api/status")
     assert status_code == 200
     assert int(status_data["records_total"]) == 3
+    assert "review_flags_count" in status_data
+    assert int(status_data["review_flags_count"]) == 0
+    assert "source_breakdown" in status_data
+    assert "manual_sync" in status_data
+
+    models_code, models_data = _request_json(api_server, "/api/models")
+    assert models_code == 200
+    assert models_data["default"] == "test-model"
+    assert any(row["name"] == "qwen2.5:14b" for row in models_data["models"])
 
     filter_code, filter_data = _request_json(
         api_server,
@@ -306,6 +332,31 @@ def test_status_filter_search_compare_and_chat_routes(api_server: str) -> None:
     assert chat_code == 200
     assert chat_data["answer"] == "stubbed answer"
     assert "synthesis" in chat_data
+    assert chat_data["model"] in {"test-model", "qwen2.5:14b", "gemma2:2b"}
+
+    auto_code, auto_data = _request_json(
+        api_server,
+        "/api/chat",
+        method="POST",
+        payload={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "Compare contradictory mechanistic causal pathways and synthesize "
+                        "uncertainty with validation next steps across claim trade-offs."
+                    ),
+                }
+            ],
+            "model": "auto",
+            "filters": {},
+            "context_limit": 5,
+            "temperature": 0.1,
+            "timeout_seconds": 10,
+        },
+    )
+    assert auto_code == 200
+    assert auto_data["model"] == "qwen2.5:14b"
 
 
 def test_chat_route_applies_evidence_type_filter(api_server: str) -> None:
@@ -2622,9 +2673,12 @@ def test_manual_sync_trigger_respects_cooldown(api_server_auth: str, monkeypatch
     monkeypatch.setenv("ALS_MANUAL_SYNC_COOLDOWN_HOURS", "6")
     cookie_pair, csrf_token = _authenticated_session(api_server_auth, "sync-cooldown@example.com")
 
-    store = EvidenceStore(Path(os.environ["ALS_DB_PATH"]))
+    store = EvidenceStore()
     store.init_db()
     store.record_manual_sync_success("all")
+    plan = json.loads(Path("config/sync_plan.smoke_public_sources.json").read_text(encoding="utf-8"))
+    for job in plan:
+        store.record_manual_sync_success(str(job["source"]))
 
     code, data = _request_json(
         api_server_auth,

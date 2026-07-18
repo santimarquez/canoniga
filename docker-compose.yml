@@ -1,10 +1,27 @@
 services:
+  postgres:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: als
+      POSTGRES_PASSWORD: als
+      POSTGRES_DB: als_intel
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U als -d als_intel"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   web:
     build: .
     ports:
       - "8000:8000"
     environment:
-      ALS_DB_PATH: /app/data/als_intel.sqlite
+      ALS_DATABASE_URL: postgresql://als:als@postgres:5432/als_intel
+      ALS_MIGRATIONS_DIR: /app/migrations/postgres
       ALS_WEB_HOST: 0.0.0.0
       ALS_WEB_PORT: 8000
       OLLAMA_HOST: http://ollama:11434
@@ -15,7 +32,10 @@ services:
     volumes:
       - ./data:/app/data
     depends_on:
-      - ollama
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
 
   mailpit:
     image: axllent/mailpit:latest
@@ -38,3 +58,4 @@ services:
 volumes:
   ollama:
   mailpit:
+  pgdata:

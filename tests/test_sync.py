@@ -1,64 +1,83 @@
 from pathlib import Path
-import sqlite3
 from typing import Any
 from unittest.mock import patch
 
 from als_intel.connectors import _kegg_find_query, fetch_go, fetch_kegg
+from als_intel.db import connect
 from als_intel.hypothesis import build_hypothesis_queue
 from als_intel.scheduler import run_scheduled_sync
 from als_intel.store import EvidenceStore
 from als_intel.sync import run_incremental_sync
 
 
-def test_init_db_migrates_legacy_investigation_runs_table(tmp_path: Path) -> None:
-    db_path = tmp_path / "legacy.sqlite"
-
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL UNIQUE,
-                email TEXT NOT NULL UNIQUE,
-                created_at TEXT NOT NULL,
-                last_login_at TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS investigation_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id TEXT NOT NULL UNIQUE,
-                user_id TEXT NOT NULL,
-                objective TEXT NOT NULL,
-                filters_json TEXT NOT NULL DEFAULT '{}',
-                status TEXT NOT NULL,
-                replay_of_run_id TEXT NOT NULL DEFAULT '',
-                report_json TEXT NOT NULL DEFAULT '{}',
-                quality_gate_json TEXT NOT NULL DEFAULT '{}',
-                replay_diff_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                started_at TEXT,
-                completed_at TEXT,
-                error_text TEXT NOT NULL DEFAULT ''
-            );
-            """
-        )
-        conn.commit()
-
-    store = EvidenceStore(db_path)
+def test_init_db_includes_investigation_run_columns() -> None:
+    store = EvidenceStore()
     store.init_db()
-
-    with sqlite3.connect(db_path) as conn:
-        col_rows = conn.execute("PRAGMA table_info(investigation_runs)").fetchall()
-        cols = {str(row[1]) for row in col_rows}
+    with connect(store.dsn) as conn:
+        col_rows = conn.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'investigation_runs'
+            """
+        ).fetchall()
+        cols = {str(row[0]) for row in col_rows}
         assert "idempotency_key" in cols
         assert "attempt_count" in cols
         assert "max_attempts" in cols
         assert "scheduled_for" in cols
         assert "require_review_signoff" in cols
 
-        idx_rows = conn.execute("PRAGMA index_list(investigation_runs)").fetchall()
-        idx_names = {str(row[1]) for row in idx_rows}
+        idx_rows = conn.execute(
+            """
+            SELECT indexname
+            FROM pg_indexes
+            WHERE schemaname = 'public' AND tablename = 'investigation_runs'
+            """
+        ).fetchall()
+        idx_names = {str(row[0]) for row in idx_rows}
         assert "idx_investigation_runs_user_idempotency" in idx_names
+
+
+def test_init_db_includes_status_perf_indexes() -> None:
+    store = EvidenceStore()
+    store.init_db()
+    with connect(store.dsn) as conn:
+        idx_rows = conn.execute(
+            """
+            SELECT indexname
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND indexname IN (
+                'idx_sync_runs_status_started',
+                'idx_sync_runs_ended_at',
+                'idx_sync_runs_source_ended',
+                'idx_sync_runs_source_status_ended',
+                'idx_manual_sync_events_started',
+                'idx_evidence_effect_direction',
+                'idx_evidence_reliability_claim',
+                'idx_change_log_claim_changed'
+              )
+            """
+        ).fetchall()
+        idx_names = {str(row[0]) for row in idx_rows}
+        assert idx_names == {
+            "idx_sync_runs_status_started",
+            "idx_sync_runs_ended_at",
+            "idx_sync_runs_source_ended",
+            "idx_sync_runs_source_status_ended",
+            "idx_manual_sync_events_started",
+            "idx_evidence_effect_direction",
+            "idx_evidence_reliability_claim",
+            "idx_change_log_claim_changed",
+        }
+
+        applied = conn.execute(
+            "SELECT version FROM schema_migrations WHERE version = ?"
+            ,
+            ("002_status_perf_indexes.sql",),
+        ).fetchone()
+        assert applied is not None
 
 
 def test_incremental_sync_and_change_log(tmp_path: Path) -> None:

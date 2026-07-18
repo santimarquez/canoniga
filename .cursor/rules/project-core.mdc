@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Project core
 
-- **Stdlib-only runtime** — never add packages to `[project.dependencies]` in `pyproject.toml`.
+- **Stdlib-only runtime except Postgres** — do not add packages to `[project.dependencies]` except the allowed DB driver `psycopg[binary]`. Runtime DB is PostgreSQL only (`ALS_DATABASE_URL`); SQLite is not a runtime backend.
 - **Minimize scope** — match naming, types, and patterns in surrounding code; no drive-by refactors.
 - **Test after changes** — run `make test` or targeted `pytest` for substantive edits.
 - **No secrets in commits** — `.env`, SMTP creds, and API keys stay out of version control.

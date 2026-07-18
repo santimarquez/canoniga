@@ -33,7 +33,6 @@
         </div>
         <p class="text-xs text-slate-500">{{ t('app.settings_read_only_hint') }}</p>
         <div class="grid gap-4 sm:grid-cols-2">
-          <UiInput id="settingsModel" :model-value="readonlyConfig.model" :label="t('app.model')" readonly />
           <UiInput id="settingsHost" :model-value="readonlyConfig.host" :label="t('app.host')" readonly />
           <UiInput
             id="settingsContextLimit"
@@ -44,30 +43,44 @@
         </div>
       </section>
 
-      <UiNotice v-if="notice" :type="notice.type" :message="notice.message" />
+      <section class="space-y-4 border-t border-slate-200 pt-6">
+        <h3 class="text-sm font-semibold text-slate-900">{{ t('app.tutorial_controls_label') }}</h3>
+        <p class="text-xs text-slate-500">{{ t('app.tutorial_title') }}</p>
+        <div class="flex flex-wrap gap-2">
+          <UiButton type="button" variant="secondary" size="sm" @click="startShort">
+            {{ t('app.tutorial_short_button') }}
+          </UiButton>
+          <UiButton type="button" variant="secondary" size="sm" @click="startLong">
+            {{ t('app.tutorial_long_button') }}
+          </UiButton>
+        </div>
+      </section>
+
       <UiButton class="w-full" type="submit">{{ t('app.apply_settings') }}</UiButton>
     </form>
   </UiDrawer>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import LocaleSwitcher from '@/components/ui/LocaleSwitcher.vue'
 import UiBadge from '@/components/ui/UiBadge.vue'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiDrawer from '@/components/ui/UiDrawer.vue'
 import UiInput from '@/components/ui/UiInput.vue'
-import UiNotice from '@/components/ui/UiNotice.vue'
 import UiSliderField from '@/components/ui/UiSliderField.vue'
 import { setAppLocale } from '@/i18n'
+import { useTutorial } from '@/composables/useTutorial'
 import { useAppStore } from '@/stores/app'
 import { useStatusStore } from '@/stores/status'
-import type { NoticeType } from '@/types/api'
+import { useToastStore } from '@/stores/toast'
 
 const { t } = useI18n()
 const app = useAppStore()
 const status = useStatusStore()
+const toast = useToastStore()
+const tutorial = useTutorial()
 
 const draft = reactive({
   language: 'en' as 'en' | 'es',
@@ -75,12 +88,9 @@ const draft = reactive({
   timeoutSeconds: 300,
 })
 
-const notice = ref<{ type: NoticeType; message: string } | null>(null)
-
 const readonlyConfig = computed(() => {
   const snapshot = status.snapshot
   return {
-    model: snapshot?.model || app.config.model,
     host: snapshot?.host || app.config.host,
     contextLimit: String(snapshot?.context_limit ?? app.config.contextLimit),
   }
@@ -98,11 +108,20 @@ function resetDraft() {
   draft.language = app.language
   draft.temperature = app.config.temperature
   draft.timeoutSeconds = app.config.timeoutSeconds
-  notice.value = null
 }
 
 function close() {
   app.settingsOpen = false
+}
+
+function startShort() {
+  app.settingsOpen = false
+  tutorial.start('short', true)
+}
+
+function startLong() {
+  app.settingsOpen = false
+  tutorial.start('full', true)
 }
 
 function clampTemperature(value: number) {
@@ -122,7 +141,7 @@ function save() {
     temperature: clampTemperature(draft.temperature),
     timeoutSeconds: clampTimeout(draft.timeoutSeconds),
   })
-  notice.value = { type: 'success', message: t('app.settings_applied') }
+  toast.push({ type: 'success', message: t('app.settings_applied') })
   window.setTimeout(() => {
     app.settingsOpen = false
   }, 600)

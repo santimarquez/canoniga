@@ -1,25 +1,31 @@
 <template>
-  <div class="flex flex-wrap gap-2">
-    <UiButton variant="secondary" size="sm" :disabled="!report" @click="save">{{ t('app.save_session') }}</UiButton>
-    <UiButton variant="secondary" size="sm" :disabled="!report" @click="downloadSummary">{{ t('app.export_summary') }}</UiButton>
-    <UiButton variant="secondary" size="sm" :disabled="!report" @click="copyCitations">{{ t('app.copy_citations') }}</UiButton>
-    <UiNotice v-if="message" class="w-full" :type="noticeType" :message="message" />
+  <div class="flex flex-wrap gap-2" data-tutorial="report_actions">
+    <UiButton data-tutorial="save_session" variant="secondary" size="sm" :disabled="!report" @click="save">
+      <span class="material-symbols-outlined text-[18px]">bookmark</span>
+      {{ t('app.save_session') }}
+    </UiButton>
+    <UiButton data-tutorial="export_summary" variant="secondary" size="sm" :disabled="!report" @click="downloadSummary">
+      <span class="material-symbols-outlined text-[18px]">download</span>
+      {{ t('app.export_summary') }}
+    </UiButton>
+    <UiButton data-tutorial="copy_citations" variant="secondary" size="sm" :disabled="!report" @click="copyCitations">
+      <span class="material-symbols-outlined text-[18px]">content_copy</span>
+      {{ t('app.copy_citations') }}
+    </UiButton>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { exportSummary as exportSummaryApi, saveSession } from '@/api/app'
 import UiButton from '@/components/ui/UiButton.vue'
-import UiNotice from '@/components/ui/UiNotice.vue'
 import { useAppStore } from '@/stores/app'
-import type { NoticeType } from '@/types/api'
+import { useToastStore } from '@/stores/toast'
 
 const { t } = useI18n()
 const app = useAppStore()
-const message = ref('')
-const noticeType = ref<NoticeType>('info')
+const toast = useToastStore()
 
 const report = computed(() => app.lastReport)
 
@@ -36,8 +42,7 @@ async function save() {
     evidence_claim_ids: report.value.evidence_rows.map((row) => row.claim_id),
   })
   app.activeSessionId = sessionId
-  message.value = t('app.session_saved')
-  noticeType.value = 'success'
+  toast.push({ type: 'success', message: t('app.session_saved') })
 }
 
 async function downloadSummary() {
@@ -59,7 +64,6 @@ async function copyCitations() {
   if (!report.value) return
   const lines = report.value.evidence_rows.map((row) => `${row.claim_id} ${row.source_doi}`)
   await navigator.clipboard.writeText(lines.join('\n'))
-  message.value = t('app.citations_copied')
-  noticeType.value = 'success'
+  toast.push({ type: 'success', message: t('app.citations_copied') })
 }
 </script>

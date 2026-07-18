@@ -9,6 +9,6 @@ alwaysApply: false
 - Start modules with `from __future__ import annotations`.
 - Use type hints; prefer `@dataclass(slots=True)` for records (see `models.py`).
 - Validate inputs with explicit `VALID_*` sets; raise `ValueError` with clear messages.
-- Access SQLite only through `EvidenceStore` in `store.py`; schema changes need migration logic.
+- Access Postgres only through `EvidenceStore` / `als_intel.db`; schema changes go in `migrations/postgres/`.
 - CLI: add subcommands in `build_parser()`, handle in `main()`; keep argparse style consistent.
 - Use absolute imports: `from als_intel.module import ...`.

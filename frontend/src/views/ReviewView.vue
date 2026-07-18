@@ -1,5 +1,5 @@
 <template>
-  <section class="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+  <section class="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]" data-tutorial="review_queue">
     <div class="rounded-xl border border-slate-200 bg-white p-4">
       <div class="mb-4 flex items-center justify-between">
         <h2 class="text-lg font-semibold text-slate-900">{{ t('app.review_queue') }}</h2>
@@ -40,7 +40,6 @@
         </div>
       </div>
       <p v-else class="text-sm text-slate-500">{{ t('app.no_review_flags') }}</p>
-      <UiNotice v-if="message" class="mt-4" :type="noticeType" :message="message" />
     </div>
   </section>
 </template>
@@ -50,20 +49,19 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { fetchReviewDecisions, fetchReviewFlags, submitReviewDecision } from '@/api/app'
 import UiButton from '@/components/ui/UiButton.vue'
-import UiNotice from '@/components/ui/UiNotice.vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
-import type { NoticeType, ReviewDecisionRow, ReviewFlag } from '@/types/api'
+import { useToastStore } from '@/stores/toast'
+import type { ReviewDecisionRow, ReviewFlag } from '@/types/api'
 
 const { t } = useI18n()
 const app = useAppStore()
 const auth = useAuthStore()
+const toast = useToastStore()
 const flags = ref<ReviewFlag[]>([])
 const history = ref<ReviewDecisionRow[]>([])
 const selectedId = ref('')
 const loadingFlags = ref(false)
-const message = ref('')
-const noticeType = ref<NoticeType>('info')
 
 const selectedFlag = computed(() => flags.value.find((flag) => flag.claim_id === selectedId.value) || null)
 
@@ -96,8 +94,7 @@ async function decide(decision: string) {
     reviewer: auth.displayName || 'reviewer',
     notes: '',
   })
-  message.value = t('app.review_decision_saved')
-  noticeType.value = 'success'
+  toast.push({ type: 'success', message: t('app.review_decision_saved') })
   await loadFlags()
   await select(selectedId.value)
 }

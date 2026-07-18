@@ -3,6 +3,7 @@
     <template #trigger="{ toggle }">
       <button
         type="button"
+        data-tutorial="open_db_explorer"
         class="relative inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-brand-primary hover:bg-slate-50"
         :title="statusTitle"
         :aria-label="statusTitle"
@@ -49,8 +50,6 @@
         {{ t('app.db_open_hint') }}
       </UiButton>
 
-      <UiNotice v-if="flashMessage" :type="status.flash?.type || 'info'" :message="flashMessage" />
-
       <div v-if="active" class="space-y-2 border-t border-slate-100 pt-3">
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs font-medium text-slate-700">{{ progressTitle }}</p>
@@ -87,15 +86,15 @@ import { useI18n } from 'vue-i18n'
 import DbSourceBreakdown from '@/components/db/DbSourceBreakdown.vue'
 import ManualSyncSourceList from '@/components/db/ManualSyncSourceList.vue'
 import UiButton from '@/components/ui/UiButton.vue'
-import UiNotice from '@/components/ui/UiNotice.vue'
 import UiPopover from '@/components/ui/UiPopover.vue'
 import UiProgress from '@/components/ui/UiProgress.vue'
 import { formatRelativeTime } from '@/i18n/time'
 import { formatCompactCount } from '@/i18n/numbers'
+import { tutorialSignal } from '@/composables/useTutorial'
 import { useAppStore } from '@/stores/app'
 import { useStatusStore } from '@/stores/status'
 
-const { t, te } = useI18n()
+const { t } = useI18n()
 const status = useStatusStore()
 const app = useAppStore()
 const popoverRef = ref<InstanceType<typeof UiPopover> | null>(null)
@@ -168,15 +167,10 @@ const etaLabel = computed(() => {
   return t('app.sync_progress_eta_remaining', { time: `${minutes}m` })
 })
 
-const flashMessage = computed(() => {
-  const key = status.flash?.message
-  if (!key) return ''
-  return te(`app.${key}`) ? t(`app.${key}`) : key
-})
-
 function openExplorer() {
   popoverRef.value?.close()
   app.dbExplorerOpen = true
+  tutorialSignal('db_explorer_opened')
 }
 
 async function triggerAll() {

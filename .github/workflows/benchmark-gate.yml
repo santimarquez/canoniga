@@ -11,6 +11,24 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHON: python
+      ALS_DATABASE_URL: postgresql://als:als@localhost:5432/als_intel
+      ALS_TEST_DATABASE_URL: postgresql://als:als@localhost:5432/als_intel
+      ALS_MIGRATIONS_DIR: ${{ github.workspace }}/migrations/postgres
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: als
+          POSTGRES_PASSWORD: als
+          POSTGRES_DB: als_intel
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U als -d als_intel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
 
     steps:
       - name: Checkout
@@ -46,8 +64,7 @@ jobs:
           templates = out / "benchmark_templates"
           templates.mkdir(parents=True, exist_ok=True)
 
-          db_path = out / "als_intel_ci.sqlite"
-          store = EvidenceStore(db_path)
+          store = EvidenceStore()
           store.init_db()
           store.register_model(
               model_id="ci-candidate-model",
@@ -82,10 +99,9 @@ jobs:
               )
           PY
 
-      - name: Run benchmark gate
+      - name: Run benchmark gate smoke
         run: |
           als-intel benchmark-gate \
-            --db ci_artifacts/als_intel_ci.sqlite \
             --candidate-model-id ci-candidate-model \
             --input-path ci_artifacts/benchmark_templates \
             --output-dir ci_artifacts/benchmark_gate \

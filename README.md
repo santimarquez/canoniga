@@ -19,7 +19,7 @@ Latest `master` CI status: [Actions runs](https://github.com/santimarquez/canoni
 - Canonical evidence schema for research claims.
 - Evidence reliability scoring (explicit, inspectable heuristics).
 - JSONL ingestion pipeline for ALS-related studies.
-- SQLite evidence store with contradiction detection.
+- PostgreSQL evidence store with contradiction detection.
 - CLI for initialization, ingestion, summaries, and contradiction reports.
 
 ## Phase 1.1 additions
@@ -94,7 +94,7 @@ make sync-stats
 Example smoke run (2026-07-11):
 
 ```bash
-DB_PATH=data/smoke.sqlite make train-eval-promote
+make train-eval-promote
 # Registered candidate model: als-20260711224145-dd12ad06
 ```
 
@@ -119,62 +119,70 @@ Or use `make setup` (auto-detects Python 3.10+ on macOS/Linux).
 
 For AI-assisted development in Cursor, see [AGENTS.md](AGENTS.md).
 
-3. Initialize the database:
+3. Start PostgreSQL and initialize the schema (default DSN `postgresql://als:als@localhost:5432/als_intel`):
 
 ```bash
-als-intel init-db --db data/als_intel.sqlite
+docker compose up -d postgres
+make init-db
+# or: als-intel init-db
+```
+
+To import a legacy SQLite file once:
+
+```bash
+make migrate-from-sqlite SQLITE_LEGACY=data/als_intel.sqlite
 ```
 
 4. Ingest sample evidence:
 
 ```bash
-als-intel ingest-jsonl --db data/als_intel.sqlite --input examples/sample_evidence.jsonl
+als-intel ingest-jsonl --input examples/sample_evidence.jsonl
 ```
 
-5. Inspect summary and contradictions:
+5. Inspect summary and contradictions (`--db` is an optional Postgres DSN override; otherwise `ALS_DATABASE_URL` is used):
 
 ```bash
-als-intel summarize --db data/als_intel.sqlite
-als-intel contradictions --db data/als_intel.sqlite
-als-intel drift --db data/als_intel.sqlite
-als-intel export-finetune-data --db data/als_intel.sqlite --output-dir data/finetune --min-reliability 0.55 --min-source-reliability 0.6 --val-ratio 0.2 --split-strategy entity_outcome_hash --format messages --min-val-examples 20
-als-intel train-model --db data/als_intel.sqlite --dataset-manifest data/finetune/manifest.json --base-model llama3.1:8b --output-dir data/models --epochs 3 --batch-size 4
-als-intel model-registry --db data/als_intel.sqlite --limit 20
+als-intel summarize
+als-intel contradictions
+als-intel drift
+als-intel export-finetune-data --output-dir data/finetune --min-reliability 0.55 --min-source-reliability 0.6 --val-ratio 0.2 --split-strategy entity_outcome_hash --format messages --min-val-examples 20
+als-intel train-model --dataset-manifest data/finetune/manifest.json --base-model llama3.1:8b --output-dir data/models --epochs 3 --batch-size 4
+als-intel model-registry --limit 20
 als-intel build-benchmark-pack --dataset-manifest data/finetune/manifest.json --output-dir data/benchmark --min-examples 20 --max-examples 200
 als-intel scaffold-benchmark-templates --output-dir data/benchmark_templates
 als-intel validate-benchmarks --input-path data/benchmark_templates --report data/benchmark_templates/validation_report.json
 als-intel merge-benchmark-templates --input-path data/benchmark_templates --output-dir data/benchmark_curated
-als-intel benchmark-gate --db data/als_intel.sqlite --candidate-model-id als-20260624000000-abc12345 --input-path data/benchmark_templates --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
-als-intel evaluate-model --db data/als_intel.sqlite --candidate-model-id als-20260624000000-abc12345 --benchmark-manifest data/benchmark/benchmark_manifest.json --output-dir data/evals --min-overall-score 0.7 --min-benchmark-size 20 --min-family-examples 5 --min-family-grounding-score 0.75 --min-family-contradiction-score 0.65 --min-family-uncertainty-score 0.6 --min-family-actionability-score 0.65
-als-intel model-evaluations --db data/als_intel.sqlite --limit 20
-als-intel chat --db data/als_intel.sqlite --question "What are the strongest contradictory signals?"
-als-intel agent-report --db data/als_intel.sqlite
-als-intel agent-report --db data/als_intel.sqlite --require-review-signoff
-als-intel lineage --db data/als_intel.sqlite --claim-id C1
-als-intel sync-source --db data/als_intel.sqlite --source pubmed --query "amyotrophic lateral sclerosis"
-als-intel recent-changes --db data/als_intel.sqlite --limit 20
-als-intel hypothesis-queue --db data/als_intel.sqlite --limit 10
-als-intel hypothesis-queue --db data/als_intel.sqlite --limit 10 --require-review-signoff
-als-intel hypothesis-queue --db data/als_intel.sqlite --limit 10 --enforce-causal-gate
-als-intel hypothesis-queue --db data/als_intel.sqlite --limit 10 --enforce-causal-gate --causal-gate-override-entity "microglial activation"
-als-intel review-flags --db data/als_intel.sqlite
-als-intel schedule-sync --db data/als_intel.sqlite --plan config/sync_plan.all_public_sources.json --cycles 1 --interval-seconds 0
-als-intel review-decision --db data/als_intel.sqlite --claim-id PUBMED_40000001 --decision approve --reviewer reviewer_a --notes "sufficient confidence"
-als-intel review-log --db data/als_intel.sqlite --limit 20
-als-intel failure-atlas --db data/als_intel.sqlite
-als-intel debate-report --db data/als_intel.sqlite
-als-intel consensus-timeline --db data/als_intel.sqlite --limit 50
-als-intel quality-metrics --db data/als_intel.sqlite --limit 200
-als-intel causal-dashboard --db data/als_intel.sqlite --limit 50
-als-intel graph-build --db data/als_intel.sqlite
-als-intel graph-overview --db data/als_intel.sqlite
-als-intel graph-support-map --db data/als_intel.sqlite --limit 50
-als-intel graph-neighbors --db data/als_intel.sqlite --node-key "entity:microglial activation" --limit 20
-als-intel trial-analysis-agent --db data/als_intel.sqlite --limit 50
-als-intel repurposing-agent --db data/als_intel.sqlite --limit 50
-als-intel graph-gap-hypotheses --db data/als_intel.sqlite --limit 10
-als-intel graph-gap-hypotheses --db data/als_intel.sqlite --limit 10 --require-review-signoff
-als-intel systems-biology-agent --db data/als_intel.sqlite --limit 10
+als-intel benchmark-gate --candidate-model-id als-20260624000000-abc12345 --input-path data/benchmark_templates --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
+als-intel evaluate-model --candidate-model-id als-20260624000000-abc12345 --benchmark-manifest data/benchmark/benchmark_manifest.json --output-dir data/evals --min-overall-score 0.7 --min-benchmark-size 20 --min-family-examples 5 --min-family-grounding-score 0.75 --min-family-contradiction-score 0.65 --min-family-uncertainty-score 0.6 --min-family-actionability-score 0.65
+als-intel model-evaluations --limit 20
+als-intel chat --question "What are the strongest contradictory signals?"
+als-intel agent-report
+als-intel agent-report --require-review-signoff
+als-intel lineage --claim-id C1
+als-intel sync-source --source pubmed --query "amyotrophic lateral sclerosis"
+als-intel recent-changes --limit 20
+als-intel hypothesis-queue --limit 10
+als-intel hypothesis-queue --limit 10 --require-review-signoff
+als-intel hypothesis-queue --limit 10 --enforce-causal-gate
+als-intel hypothesis-queue --limit 10 --enforce-causal-gate --causal-gate-override-entity "microglial activation"
+als-intel review-flags
+als-intel schedule-sync --plan config/sync_plan.all_public_sources.json --cycles 1 --interval-seconds 0
+als-intel review-decision --claim-id PUBMED_40000001 --decision approve --reviewer reviewer_a --notes "sufficient confidence"
+als-intel review-log --limit 20
+als-intel failure-atlas
+als-intel debate-report
+als-intel consensus-timeline --limit 50
+als-intel quality-metrics --limit 200
+als-intel causal-dashboard --limit 50
+als-intel graph-build
+als-intel graph-overview
+als-intel graph-support-map --limit 50
+als-intel graph-neighbors --node-key "entity:microglial activation" --limit 20
+als-intel trial-analysis-agent --limit 50
+als-intel repurposing-agent --limit 50
+als-intel graph-gap-hypotheses --limit 10
+als-intel graph-gap-hypotheses --limit 10 --require-review-signoff
+als-intel systems-biology-agent --limit 10
 als-intel extraction-fidelity-gate
 make train-eval-promote
 ```
@@ -201,7 +209,7 @@ docker compose exec ollama ollama pull llama3.1:8b
 http://localhost:8000
 ```
 
-The web page talks to the local Ollama service and grounds replies with evidence rows from `data/als_intel.sqlite`. If the database is empty, the chat still works, but without local evidence context.
+The web page talks to the local Ollama service and grounds replies with evidence rows from PostgreSQL (`ALS_DATABASE_URL`). If the database is empty, the chat still works, but without local evidence context.
 
 To bring up the whole project locally with Docker and seed sample evidence, use:
 
@@ -223,7 +231,7 @@ To stop that dev stack:
 make docker-dev-down
 ```
 
-That command starts the Ollama and web containers, initializes the SQLite database inside the web container, ingests `examples/sample_evidence.jsonl`, and pulls the configured model into Ollama.
+That command starts Postgres, Ollama, and web containers, applies schema migrations, ingests `examples/sample_evidence.jsonl`, and pulls the configured model into Ollama.
 
 Compose uses project-scoped container names, so repeated `make docker-up` runs should not collide with prior containers.
 
@@ -261,6 +269,16 @@ make frontend-dev  # terminal 2 — Vite hot reload
 Open `http://localhost:5173/` (not `/app-assets/` — that path is only for production asset bundles on `:8000`).
 
 Frontend lives in `frontend/` (Vue 3 + TypeScript + Vite). Production builds output to `assets/dist/` and are served by the Python process.
+
+## Database (PostgreSQL)
+
+Runtime storage is PostgreSQL only (driver: `psycopg`).
+
+- `ALS_DATABASE_URL` (preferred), or `ALS_PG_HOST` / `ALS_PG_PORT` / `ALS_PG_DB` / `ALS_PG_USER` / `ALS_PG_PASSWORD` / `ALS_PG_SSLMODE`
+- Default local DSN: `postgresql://als:als@localhost:5432/als_intel`
+- Schema: `make init-db` applies `migrations/postgres/`
+- Legacy import: `make migrate-from-sqlite SQLITE_LEGACY=path/to/als_intel.sqlite`
+- Rollback: restore a previous release and database backup — there is no SQLite runtime toggle in current code
 
 ## Authentication and magic-link configuration
 
@@ -369,7 +387,7 @@ Before exposing a self-hosted instance on the public internet:
 2. Configure real SMTP (`ALS_SMTP_HOST`, `ALS_SMTP_PORT`, `ALS_SMTP_USER`, `ALS_SMTP_PASSWORD`, `ALS_SMTP_FROM`). Use Mailpit (`localhost:8025`) only for local development.
 3. Set `ALS_COOKIE_SECURE=1` behind an HTTPS reverse proxy (nginx, Caddy, Traefik).
 4. Keep default rate limits (`ALS_MAGIC_LINK_RATE_LIMIT_*`) unless you have alternate abuse protection.
-5. Set a strong `ALS_CSRF_SECRET` and restrict database file permissions.
+5. Set a strong `ALS_CSRF_SECRET` and restrict Postgres credentials / network access.
 6. Create `ALS_AUTOMATION_WORKER_TOKEN` for scheduled `make nightly-ops` / `make docker-nightly-ops` worker ticks.
 7. Serve governance docs locally at `/docs/MISSION.md` (no GitHub dependency required).
 
@@ -414,13 +432,13 @@ ollama pull llama3.1:8b
 3. Use one-shot grounded chat:
 
 ```bash
-als-intel chat --db data/als_intel.sqlite --model llama3.1:8b --question "Which mechanisms are most uncertain and why?"
+als-intel chat --model llama3.1:8b --question "Which mechanisms are most uncertain and why?"
 ```
 
 4. Use interactive mode:
 
 ```bash
-als-intel chat --db data/als_intel.sqlite --model llama3.1:8b --interactive
+als-intel chat --model llama3.1:8b --interactive
 ```
 
 ### Fine-tuning data export
@@ -428,7 +446,7 @@ als-intel chat --db data/als_intel.sqlite --model llama3.1:8b --interactive
 Export train/validation files for supervised fine-tuning:
 
 ```bash
-als-intel export-finetune-data --db data/als_intel.sqlite --output-dir data/finetune --min-reliability 0.55 --min-source-reliability 0.6 --val-ratio 0.2 --split-strategy entity_outcome_hash --format messages --min-val-examples 20
+als-intel export-finetune-data --output-dir data/finetune --min-reliability 0.55 --min-source-reliability 0.6 --val-ratio 0.2 --split-strategy entity_outcome_hash --format messages --min-val-examples 20
 ```
 
 Outputs:
@@ -444,14 +462,14 @@ Manifest includes QA checks for duplicate claim ids, filter drop counts, contrad
 Run local training pipeline (simulated by default unless `--trainer-command` is provided):
 
 ```bash
-als-intel train-model --db data/als_intel.sqlite --dataset-manifest data/finetune/manifest.json --base-model llama3.1:8b --output-dir data/models --epochs 3 --batch-size 4
+als-intel train-model --dataset-manifest data/finetune/manifest.json --base-model llama3.1:8b --output-dir data/models --epochs 3 --batch-size 4
 ```
 
 List or inspect registered models:
 
 ```bash
-als-intel model-registry --db data/als_intel.sqlite --limit 20
-als-intel model-registry --db data/als_intel.sqlite --model-id als-20260624000000-abc12345
+als-intel model-registry --limit 20
+als-intel model-registry --model-id als-20260624000000-abc12345
 ```
 
 ### Model evaluation and promotion gate
@@ -463,8 +481,8 @@ als-intel build-benchmark-pack --dataset-manifest data/finetune/manifest.json --
 als-intel scaffold-benchmark-templates --output-dir data/benchmark_templates
 als-intel validate-benchmarks --input-path data/benchmark_templates --report data/benchmark_templates/validation_report.json
 als-intel merge-benchmark-templates --input-path data/benchmark_templates --output-dir data/benchmark_curated
-als-intel evaluate-model --db data/als_intel.sqlite --candidate-model-id als-20260624000000-abc12345 --baseline-model-id als-20260623000000-def67890 --benchmark-manifest data/benchmark_curated/benchmark_manifest.json --output-dir data/evals --min-grounding-score 0.65 --max-hallucination-risk 0.35 --min-overall-score 0.70 --min-improvement-over-baseline 0.02 --min-benchmark-size 20 --min-family-examples 5 --min-family-grounding-score 0.75 --min-family-contradiction-score 0.65 --min-family-uncertainty-score 0.6 --min-family-actionability-score 0.65
-als-intel benchmark-gate --db data/als_intel.sqlite --candidate-model-id als-20260624000000-abc12345 --baseline-model-id als-20260623000000-def67890 --input-path data/benchmark_templates --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
+als-intel evaluate-model --candidate-model-id als-20260624000000-abc12345 --baseline-model-id als-20260623000000-def67890 --benchmark-manifest data/benchmark_curated/benchmark_manifest.json --output-dir data/evals --min-grounding-score 0.65 --max-hallucination-risk 0.35 --min-overall-score 0.70 --min-improvement-over-baseline 0.02 --min-benchmark-size 20 --min-family-examples 5 --min-family-grounding-score 0.75 --min-family-contradiction-score 0.65 --min-family-uncertainty-score 0.6 --min-family-actionability-score 0.65
+als-intel benchmark-gate --candidate-model-id als-20260624000000-abc12345 --baseline-model-id als-20260623000000-def67890 --input-path data/benchmark_templates --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
 ```
 
 Benchmark packs include family-specific files under `files.families` for: grounding, contradiction, uncertainty, and actionability.
@@ -498,20 +516,20 @@ GitHub Actions workflow [/.github/workflows/benchmark-gate-strict.yml](.github/w
 Run locally with equivalent command:
 
 ```bash
-als-intel benchmark-gate --db data/als_intel.sqlite --candidate-model-id YOUR_MODEL_ID --input-path data/benchmark_templates --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
+als-intel benchmark-gate --candidate-model-id YOUR_MODEL_ID --input-path data/benchmark_templates --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
 ```
 
 Run strict local equivalent against curated files:
 
 ```bash
-als-intel benchmark-gate --db data/als_intel.sqlite --candidate-model-id YOUR_MODEL_ID --input-path benchmarks/curated --output-dir data/benchmark_gate_strict --policy-file config/benchmark_gate_policy.json
+als-intel benchmark-gate --candidate-model-id YOUR_MODEL_ID --input-path benchmarks/curated --output-dir data/benchmark_gate_strict --policy-file config/benchmark_gate_policy.json
 ```
 
 Query evaluation registry:
 
 ```bash
-als-intel model-evaluations --db data/als_intel.sqlite --limit 20
-als-intel model-evaluations --db data/als_intel.sqlite --evaluation-id eval-20260624000000-abc12345
+als-intel model-evaluations --limit 20
+als-intel model-evaluations --evaluation-id eval-20260624000000-abc12345
 ```
 
 ## Data model philosophy

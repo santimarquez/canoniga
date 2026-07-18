@@ -14,8 +14,15 @@
         expand_more
       </span>
     </button>
-    <div v-show="isOpen" class="border-t border-slate-200 px-3 py-2">
-      <slot />
+    <div
+      class="disclosure-expand grid border-t border-slate-200 transition-[grid-template-rows,opacity] duration-200 ease-out"
+      :class="isOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0 border-t-transparent'"
+    >
+      <div class="disclosure-expand-inner overflow-hidden">
+        <div class="px-3 py-2">
+          <slot />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -23,37 +30,32 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-const props = withDefaults(
-  defineProps<{
-    title: string
-    defaultOpen?: boolean
-    open?: boolean
-  }>(),
-  {
-    defaultOpen: false,
-  },
-)
+const props = defineProps({
+  title: { type: String, required: true },
+  defaultOpen: { type: Boolean, default: false },
+  // default undefined avoids Boolean casting of a missing prop to false
+  open: { type: Boolean, default: undefined },
+})
 
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
 
-const internalOpen = ref(props.defaultOpen)
+const uncontrolledOpen = ref(props.defaultOpen)
+const isControlled = computed(() => props.open !== undefined)
 
 watch(
   () => props.open,
   (value) => {
-    if (value !== undefined) internalOpen.value = value
+    if (value !== undefined) uncontrolledOpen.value = value
   },
 )
 
-const isOpen = computed({
-  get: () => (props.open !== undefined ? props.open : internalOpen.value),
-  set: (value: boolean) => {
-    internalOpen.value = value
-    emit('update:open', value)
-  },
-})
+const isOpen = computed(() => (isControlled.value ? Boolean(props.open) : uncontrolledOpen.value))
 
 function toggle() {
-  isOpen.value = !isOpen.value
+  const next = !isOpen.value
+  if (!isControlled.value) {
+    uncontrolledOpen.value = next
+  }
+  emit('update:open', next)
 }
 </script>

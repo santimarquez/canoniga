@@ -38,16 +38,18 @@ Database explorer (`DbExplorerModal.vue`): fixed-height modal, infinite-scroll l
 
 DB status popover (`DbStatusPopover.vue`, `ManualSyncSourceRow.vue`): compact locale-aware counts and relative timestamps (`formatRelativeTime`, `formatCompactCount`); sync progress shows percent and contextual title; navbar badge shows a spinning sync icon while updating; cooldown button reads "Already up-to-date". Success/error toasts use `last_completion_status` from `/api/sync/manual/status` (not merely "sync stopped").
 
-Manual sync backend (`manual_sync.py`): writes `manual_sync_events` audit rows; exposes `last_completion_status`, `last_completion_error`, and `audit_events` on status API; caps unbounded plan `max_results: 0` jobs via `ALS_MANUAL_SYNC_MAX_RESULTS` (default 250). Source breakdown returns top 5 sources + Others.
+Manual sync backend (`manual_sync.py`): writes `manual_sync_events` audit rows; exposes `last_completion_status`, `last_completion_error`, and `audit_events` on status API; plan `max_results: 0` means unbounded fetch (connectors treat <=0 as no limit). Source breakdown returns top 5 sources + Others.
+
+Shared overlay motion lives in `frontend/src/styles/main.css` (`.overlay-fade-*`, `.panel-scale-*`, `.page-fade-*`) and is wired through `UiModal`, `UiDrawer`, and `UiPopover`. `AppShell` delays collapsing the assistant shell until the route leave transition finishes so the evidence column does not flash full-width.
 
 ## Assistant view
 
-Two-column layout at `lg+` when evidence panel is open: query/report (center) | `EvidenceSidebar` (right). Filters live inline in `AssistantView.vue` above the composer (no left column). Below `lg`, evidence nodes open via `EvidenceSidebarDrawer` toggle.
+Two-column layout at `lg+` when evidence panel is open: scrollable chat transcript (center) | `EvidenceSidebar` (right). Chat uses full remaining viewport height: markdown report scrolls above a bottom-docked composer.
 
-**Evidence filters** (`FilterPanel.vue` in `AssistantView.vue`): toggle chips for evidence types (`app.evidence_types_to_include`); min reliability, publication date, and highlight contradictions share a compact aligned row on `md+`; changes apply immediately (no Apply button). Collapsible via filter icon button (`filter_list`) + `app.filtersCollapsed`. Ghost **Reset filters** (`app.reset_filters`) restores `DEFAULT_FILTERS` (observational + interventional, 60% reliability, contradictions on). Filters are sent on the next chat stream (`useChatStream.ts` → `filters: app.filters`).
+**Composer** (`ChatComposer.vue`): ChatGPT-style prompt dock with `+` menu (database explorer, filter modal), `ModelPicker` (Ollama catalog + Auto; selection in `localStorage` key `als_model_selection`), send button inside bottom-right of textarea, single rotating status line below prompt (`useStreamStatus` maps `streamPhase` to `app.stream_*` i18n keys). Model list comes from `GET /api/models`; chat resolves `model: "auto"` via `resolve_chat_model` in `llm.py`.
 
-**Query / report** (`AssistantView.vue`, `StreamReport.vue`, `ReportActions.vue`): synthesis report and session actions appear only after first user message or loaded session. Session actions use `app.*` i18n keys; copy success uses `app.citations_copied`.
+**Query / report** (`StreamReport.vue`, `MarkdownContent.vue`): full answer rendered as sanitized markdown HTML during stream and after completion. Session actions appear after first user message or loaded session.
 
 **Evidence sidebar** (`EvidenceSidebar.vue`): collapsible via `UiDisclosure` + `app.evidenceCollapsed` (default open). When collapsed on `lg+`, the third grid column is removed so the query column expands; reopen via the **Evidence Nodes** button in `AssistantView.vue`. Idle hint before first query (`app.evidence_hint_idle`); empty hint when report has zero cited rows (`app.evidence_hint_empty`). Contradiction highlighting/sorting follows `app.filters.highlight_contradictions` in `EvidenceRow.vue` / `EvidenceList.vue`.
 
-Settings (`SettingsDrawer.vue`): editable section (language, temperature/timeout sliders with visible helper text); read-only section (model, host, context limit from `/api/status`). Shared form primitives: `UiInput`, `UiSelect`, `UiSliderField`. `status` store seeds `app.config` once from `/api/status` on first refresh.
+Settings (`SettingsDrawer.vue`): editable section (language, temperature/timeout sliders with visible helper text); read-only section (host, context limit from `/api/status` — model choice lives in the composer picker, not Settings). Shared form primitives: `UiInput`, `UiSelect`, `UiSliderField`. `status` store seeds `app.config` once from `/api/status` on first refresh.

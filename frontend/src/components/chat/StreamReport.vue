@@ -1,32 +1,122 @@
 <template>
-  <article class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-    <div v-if="app.streaming && app.streamStatus" class="mb-3 flex items-center gap-2 text-sm text-slate-600">
-      <UiSpinner size="sm" />
-      <span>{{ app.streamStatus }}</span>
-    </div>
-    <h3 v-if="!content" class="text-sm font-semibold text-slate-900">{{ t('app.report_title') }}</h3>
-    <div v-if="content" class="prose prose-sm max-w-none whitespace-pre-wrap text-slate-800">{{ content }}</div>
-    <div v-if="report" class="mt-4 grid gap-2 text-xs text-slate-600 md:grid-cols-3">
-      <span>{{ t('app.report_evidence_count', { count: report.evidence_count }) }}</span>
-      <span>{{ t('app.report_model', { model: report.model }) }}</span>
-      <span>{{ t('app.generated_in', { seconds: report.generated_seconds }) }}</span>
-    </div>
-    <div v-if="report?.synthesis?.direct_answer" class="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-950">
-      <h3 class="font-semibold">{{ t('app.direct_answer') }}</h3>
-      <p class="mt-1">{{ report.synthesis.direct_answer }}</p>
-    </div>
+  <article ref="reportRef" class="w-full" data-tutorial="report">
+    <MarkdownContent
+      v-if="app.streaming || displayAnswer"
+      :content="displayAnswer"
+      :show-cursor="app.streaming"
+    />
+
+    <Transition name="fade-slide">
+      <div v-if="report && !app.streaming" key="post-stream">
+        <div v-if="supportingIds.length" class="mt-6">
+          <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            {{ t('app.supporting_nodes') }}
+          </h4>
+          <div class="chips">
+            <button
+              v-for="claimId in supportingIds"
+              :key="claimId"
+              type="button"
+              class="chip"
+              @click="openClaim(claimId)"
+            >
+              {{ claimId }}
+            </button>
+          </div>
+        </div>
+
+        <div
+          class="mt-6 space-y-6"
+          data-tutorial="validation"
+        >
+          <div v-if="report.synthesis?.contradictions_summary">
+            <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              {{ t('app.contradictions_uncertainty') }}
+            </h4>
+            <MarkdownContent :content="report.synthesis.contradictions_summary" />
+          </div>
+
+          <div v-if="report.synthesis?.next_validation_step">
+            <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              {{ t('app.next_validation_step') }}
+            </h4>
+            <MarkdownContent :content="report.synthesis.next_validation_step" />
+          </div>
+
+          <div
+            v-if="followUpQuery"
+            class="rounded-lg border border-slate-200 bg-slate-50 p-3"
+          >
+            <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              {{ t('app.executable_follow_up') }}
+            </h4>
+            <p class="mb-3 text-sm text-slate-800">{{ followUpQuery }}</p>
+            <UiButton
+              size="sm"
+              :disabled="app.streaming"
+              :loading="app.streaming"
+              @click="runFollowUp"
+            >
+              {{ t('app.run_this_query') }}
+            </UiButton>
+          </div>
+        </div>
+
+        <div class="report-meta mt-6">
+          <span class="runtime-badge">{{ t('app.report_model', { model: report.model }) }}</span>
+          <span class="runtime-badge">{{ t('app.generated_in', { seconds: formattedSeconds }) }}</span>
+        </div>
+      </div>
+    </Transition>
   </article>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import UiSpinner from '@/components/ui/UiSpinner.vue'
+import MarkdownContent from '@/components/chat/MarkdownContent.vue'
+import UiButton from '@/components/ui/UiButton.vue'
+import { useChatStream } from '@/composables/useChatStream'
 import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
 const app = useAppStore()
+const { send } = useChatStream()
+const reportRef = ref<HTMLElement | null>(null)
 
 const report = computed(() => app.lastReport)
-const content = computed(() => app.streaming ? app.streamAnswer : report.value?.answer || app.streamAnswer)
+
+const displayAnswer = computed(() => {
+  if (app.streaming) return app.streamAnswer
+  const fromSynthesis = report.value?.synthesis?.direct_answer?.trim() ?? ''
+  const fromAnswer = report.value?.answer?.trim() ?? ''
+  return fromSynthesis || fromAnswer || app.streamAnswer
+})
+
+const supportingIds = computed(() => {
+  const ids = report.value?.synthesis?.supporting_claim_ids ?? []
+  return ids.filter((id) => id.trim())
+})
+
+const followUpQuery = computed(() => {
+  return report.value?.synthesis?.executable_follow_up_query?.trim() || ''
+})
+
+const formattedSeconds = computed(() => {
+  const seconds = Number(report.value?.generated_seconds ?? 0)
+  return seconds.toFixed(1)
+})
+
+function openClaim(claimId: string) {
+  app.claimDrawerClaimId = claimId
+  app.claimDrawerOpen = true
+}
+
+function runFollowUp() {
+  const query = followUpQuery.value
+  if (!query || app.streaming) return
+  void send(query)
+}
+
+defineExpose({ reportRef })
 </script>

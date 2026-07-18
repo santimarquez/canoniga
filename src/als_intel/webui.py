@@ -34,7 +34,14 @@ from als_intel.brand import (
 from als_intel.i18n import locale_cookie_header, resolve_locale
 from als_intel.landing import APP_ROUTE
 from als_intel.static_frontend import serve_repo_asset, serve_spa_or_static
-from als_intel.llm import LocalLLMError, build_grounded_prompt, generate_with_ollama, generate_with_ollama_stream
+from als_intel.llm import (
+    LocalLLMError,
+    build_grounded_prompt,
+    generate_with_ollama,
+    generate_with_ollama_stream,
+    list_ollama_models,
+    resolve_chat_model,
+)
 from als_intel.manual_sync import ManualSyncError, get_manual_sync_status, start_manual_sync
 from als_intel.markdown_render import extract_markdown_title, render_markdown_to_html
 from als_intel.profile import public_profile_summary
@@ -43,7 +50,7 @@ from als_intel.store import EvidenceStore
 MAX_PROFILE_AVATAR_BYTES = 256 * 1024
 
 
-DEFAULT_DB_PATH = os.getenv("ALS_DB_PATH", "data/als_intel.sqlite")
+DEFAULT_DB_PATH = os.getenv("ALS_DATABASE_URL", os.getenv("ALS_DB_PATH", "postgresql://als:als@localhost:5432/als_intel"))
 DEFAULT_OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 DEFAULT_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 DEFAULT_PORT = int(os.getenv("ALS_WEB_PORT", "8000"))
@@ -65,6 +72,43 @@ GOVERNANCE_DOC_NAMES = (
     "ETHICS_AND_OVERSIGHT.md",
     "HUMAN_OVERSIGHT.md",
 )
+
+
+def _latest_user_question(messages: list[dict[str, object]]) -> str:
+    for message in reversed(messages):
+        if str(message.get("role", "")).strip().lower() != "user":
+            continue
+        content = str(message.get("content", "")).strip()
+        if content:
+            return content
+    return ""
+
+
+def _resolve_request_chat_model(
+    *,
+    payload: dict[str, object],
+    settings: dict[str, object],
+    messages: list[dict[str, object]],
+    host: str,
+) -> tuple[str, str]:
+    selection = str(payload.get("model") or "").strip() or "auto"
+    catalog = list_ollama_models(
+        host=host,
+        default_model=str(settings.get("model") or DEFAULT_OLLAMA_MODEL),
+    )
+    available = [
+        str(row.get("name") or row.get("id") or "").strip()
+        for row in catalog.get("models", [])
+        if isinstance(row, dict)
+    ]
+    available = [name for name in available if name]
+    question = _latest_user_question(messages)
+    return resolve_chat_model(
+        question,
+        available=available,
+        default=str(settings.get("model") or DEFAULT_OLLAMA_MODEL),
+        selection=selection,
+    )
 
 
 def _json_response(
@@ -137,7 +181,8 @@ def _build_chat_prompt(
     if not latest_user_message:
         raise ValueError("At least one user message is required")
 
-    prompt = build_grounded_prompt(latest_user_message, evidence_rows, context_limit=context_limit)
+    prioritized_rows = _prioritize_evidence_rows_for_question(evidence_rows, latest_user_message)
+    prompt = build_grounded_prompt(latest_user_message, prioritized_rows, context_limit=context_limit)
     language_normalized = str(language or "en").strip().lower()
     if language_normalized == "es":
       prompt += "\n\nOutput language requirement: Respond entirely in Spanish."
@@ -215,6 +260,230 @@ def _apply_evidence_filters(evidence_rows: list[dict[str, object]], filters: dic
     return output
 
 
+def _type_claim_conflict(
+    *,
+    outcome_a: str,
+    outcome_b: str,
+    cohort_a: str,
+    cohort_b: str,
+    model_a: str,
+    model_b: str,
+    direction_a: str,
+    direction_b: str,
+) -> dict[str, str]:
+    dir_a = str(direction_a or "").strip().lower()
+    dir_b = str(direction_b or "").strip().lower()
+    out_a = str(outcome_a or "").strip()
+    out_b = str(outcome_b or "").strip()
+    coh_a = str(cohort_a or "unknown").strip() or "unknown"
+    coh_b = str(cohort_b or "unknown").strip() or "unknown"
+    mod_a = str(model_a or "unspecified").strip() or "unspecified"
+    mod_b = str(model_b or "unspecified").strip() or "unspecified"
+
+    if dir_a and dir_b and dir_a == dir_b:
+        return {
+            "contradiction_type": "aligned",
+            "follow_up_suggestion": "Claims agree on direction; deepen with endpoint-matched replication if needed.",
+        }
+    if out_a != out_b:
+        return {
+            "contradiction_type": "endpoint_mismatch",
+            "follow_up_suggestion": (
+                "Design an endpoint-alignment study with both outcomes measured in the same cohort."
+            ),
+        }
+    if coh_a != coh_b and coh_a != "unknown" and coh_b != "unknown":
+        return {
+            "contradiction_type": "cohort_mismatch",
+            "follow_up_suggestion": (
+                "Perform stratified analysis across harmonized cohorts and pre-registered covariates."
+            ),
+        }
+    if mod_a != mod_b and mod_a != "unspecified" and mod_b != "unspecified":
+        return {
+            "contradiction_type": "model_system_mismatch",
+            "follow_up_suggestion": "Bridge findings using translational model-to-human validation pipeline.",
+        }
+    return {
+        "contradiction_type": "direction_conflict",
+        "follow_up_suggestion": (
+            "Run replication study with matched endpoint definitions and harmonized analysis plan."
+        ),
+    }
+
+
+def _compare_field_diffs(claim_a: dict[str, object], claim_b: dict[str, object]) -> list[dict[str, object]]:
+    fields = (
+        "effect_direction",
+        "outcome",
+        "cohort",
+        "study_type",
+        "model_system",
+    )
+    diffs: list[dict[str, object]] = []
+    for field in fields:
+        value_a = str(claim_a.get(field, "") or "").strip()
+        value_b = str(claim_b.get(field, "") or "").strip()
+        diffs.append(
+            {
+                "field": field,
+                "value_a": value_a,
+                "value_b": value_b,
+                "differs": value_a.lower() != value_b.lower(),
+            }
+        )
+    return diffs
+
+
+def _normalize_claim_id_list(raw_ids: object, *, limit: int = 5) -> list[str]:
+    if not isinstance(raw_ids, list):
+        return []
+    output: list[str] = []
+    for value in raw_ids:
+        claim_id = str(value or "").strip()
+        if not claim_id or claim_id in output:
+            continue
+        output.append(claim_id)
+        if len(output) >= max(1, limit):
+            break
+    return output
+
+
+def _format_claim_ids_phrase(claim_ids: list[str], *, language: str) -> str:
+    cleaned = [str(cid).strip() for cid in claim_ids if str(cid).strip()]
+    if not cleaned:
+        return ""
+    language_normalized = str(language or "en").strip().lower()
+    if len(cleaned) == 1:
+        return cleaned[0]
+    if language_normalized == "es":
+        if len(cleaned) == 2:
+            return f"{cleaned[0]} y {cleaned[1]}"
+        return ", ".join(cleaned[:-1]) + f" y {cleaned[-1]}"
+    if len(cleaned) == 2:
+        return f"{cleaned[0]} and {cleaned[1]}"
+    return ", ".join(cleaned[:-1]) + f", and {cleaned[-1]}"
+
+
+def _attach_claim_ids_to_follow_up_query(query: str, claim_ids: list[str], *, language: str) -> str:
+    cleaned_query = str(query or "").strip()
+    if not cleaned_query:
+        return ""
+    missing = [cid for cid in claim_ids if cid and cid not in cleaned_query]
+    if not missing:
+        return cleaned_query
+    phrase = _format_claim_ids_phrase(missing, language=language)
+    if not phrase:
+        return cleaned_query
+    language_normalized = str(language or "en").strip().lower()
+    base = cleaned_query.rstrip().rstrip("?.!").rstrip()
+    if language_normalized == "es":
+        return f"{base}, centrandote en {phrase}?"
+    return f"{base}, focusing on {phrase}?"
+
+
+def _claim_ids_mentioned_in_text(text: str, evidence_rows: list[dict[str, object]]) -> list[str]:
+    haystack = str(text or "")
+    if not haystack:
+        return []
+    found: list[str] = []
+    for row in evidence_rows:
+        claim_id = str(row.get("claim_id", "") or "").strip()
+        if not claim_id or claim_id in found:
+            continue
+        if re.search(rf"(?<![A-Za-z0-9_]){re.escape(claim_id)}(?![A-Za-z0-9_])", haystack):
+            found.append(claim_id)
+    return found
+
+
+def _prioritize_evidence_rows_for_question(
+    evidence_rows: list[dict[str, object]],
+    question: str,
+) -> list[dict[str, object]]:
+    if not evidence_rows:
+        return []
+    mentioned = set(_claim_ids_mentioned_in_text(question, evidence_rows))
+    if not mentioned:
+        return list(evidence_rows)
+    prioritized = [row for row in evidence_rows if str(row.get("claim_id", "")).strip() in mentioned]
+    remainder = [row for row in evidence_rows if str(row.get("claim_id", "")).strip() not in mentioned]
+    return prioritized + remainder
+
+
+def _normalize_executable_follow_up_query(raw: str) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    # Prefer first non-empty line; strip list markers / quotes.
+    for line in text.splitlines():
+        cleaned = re.sub(r"^[\s>*\-\d\.\)\(]+", "", line).strip().strip("`\"'")
+        if not cleaned:
+            continue
+        lower = cleaned.lower()
+        if lower in {"none", "n/a", "na", "null"}:
+            return ""
+        if lower.startswith("requires external integration:") or lower.startswith(
+            "requiere integracion externa:"
+        ):
+            return ""
+        if _step_requires_external_integration(cleaned):
+            return ""
+        generic = "run a stratified follow-up validation focusing on cohort and endpoint differences"
+        if lower.rstrip(".") == generic:
+            return ""
+        return cleaned
+    return ""
+
+
+def _template_executable_follow_up_query(
+    contradiction_rows: list[dict[str, object]],
+    *,
+    language: str,
+    claim_ids: list[str] | None = None,
+) -> str:
+    if not contradiction_rows:
+        return ""
+    top = contradiction_rows[0]
+    entity = str(top.get("entity", "") or "").strip() or "this entity"
+    outcome_a = str(top.get("outcome_a", "") or "").strip()
+    outcome_b = str(top.get("outcome_b", "") or "").strip()
+    contradiction_type = str(top.get("contradiction_type", "") or "").strip()
+    pair_ids = _normalize_claim_id_list(
+        [top.get("claim_a"), top.get("claim_b"), *(claim_ids or [])],
+        limit=5,
+    )
+    claim_phrase = _format_claim_ids_phrase(pair_ids, language=language)
+    language_normalized = str(language or "en").strip().lower()
+    if language_normalized == "es":
+        focus = f" ({claim_phrase})" if claim_phrase else ""
+        if contradiction_type == "endpoint_mismatch" and outcome_a and outcome_b:
+            return (
+                f"Entre las claims citadas{focus} sobre {entity}, "
+                f"¿discrepan los resultados por endpoint ({outcome_a} vs {outcome_b})?"
+            )
+        if contradiction_type == "cohort_mismatch":
+            return (
+                f"Entre las claims citadas{focus} sobre {entity}, "
+                "¿discrepan los resultados por cohorte?"
+            )
+        return (
+            f"Entre las claims citadas{focus} sobre {entity}, "
+            "¿discrepan los resultados por cohorte o endpoint?"
+        )
+    focus = f" ({claim_phrase})" if claim_phrase else ""
+    if contradiction_type == "endpoint_mismatch" and outcome_a and outcome_b:
+        return (
+            f"Among cited claims{focus} about {entity}, "
+            f"do results disagree by endpoint ({outcome_a} vs {outcome_b})?"
+        )
+    if contradiction_type == "cohort_mismatch":
+        return f"Among cited claims{focus} about {entity}, do results disagree by cohort?"
+    return (
+        f"Among cited claims{focus} about {entity}, "
+        "do results disagree by cohort or endpoint?"
+    )
+
+
 def _contradiction_pairs_from_rows(
     evidence_rows: list[dict[str, object]],
     *,
@@ -251,13 +520,22 @@ def _contradiction_pairs_from_rows(
         for contra in contradicts:
           outcome_a = str(support.get("outcome", ""))
           outcome_b = str(contra.get("outcome", ""))
+          cohort_a = str(support.get("cohort", "") or "unknown")
+          cohort_b = str(contra.get("cohort", "") or "unknown")
+          model_a = str(support.get("model_system", "") or "unspecified")
+          model_b = str(contra.get("model_system", "") or "unspecified")
           score_a = float(support.get("reliability_score", 0.0) or 0.0)
           score_b = float(contra.get("reliability_score", 0.0) or 0.0)
-          contradiction_type = "direction_conflict"
-          follow_up = "Run replication study with matched endpoint definitions and harmonized analysis plan."
-          if outcome_a != outcome_b:
-            contradiction_type = "endpoint_mismatch"
-            follow_up = "Design an endpoint-alignment study with both outcomes measured in the same cohort."
+          typed = _type_claim_conflict(
+            outcome_a=outcome_a,
+            outcome_b=outcome_b,
+            cohort_a=cohort_a,
+            cohort_b=cohort_b,
+            model_a=model_a,
+            model_b=model_b,
+            direction_a=str(support.get("effect_direction", "")),
+            direction_b=str(contra.get("effect_direction", "")),
+          )
           output.append(
             {
               "claim_a": str(support.get("claim_id", "")),
@@ -267,8 +545,8 @@ def _contradiction_pairs_from_rows(
               "outcome_b": outcome_b,
               "score_a": score_a,
               "score_b": score_b,
-              "contradiction_type": contradiction_type,
-              "follow_up_experiment": follow_up,
+              "contradiction_type": typed["contradiction_type"],
+              "follow_up_experiment": typed["follow_up_suggestion"],
             }
           )
           if len(output) >= safe_limit:
@@ -855,7 +1133,7 @@ def _build_synthesis(
   def _extract_section(text: str, heading_patterns: list[str]) -> str:
     headings_group = "|".join(heading_patterns)
     pattern = re.compile(
-      rf"(?is)(?:\*\*\s*(?:{headings_group})\s*\*\*|^\s*#{{1,4}}\s*(?:{headings_group})\s*$)\s*(.+?)(?=\n\s*(?:\*\*|#{{1,4}}\s)|\Z)",
+      rf"(?ims)(?:\*\*\s*(?:{headings_group})\s*\*\*|^\s*#{{1,4}}\s*(?:{headings_group})\s*$)\s*(.+?)(?=\n\s*(?:\*\*|\#{{1,4}}\s)|\Z)",
     )
     match = pattern.search(text)
     if not match:
@@ -873,13 +1151,31 @@ def _build_synthesis(
     answer,
     [
       r"Suggested\s+Validation\s+Next\s+Steps",
+      r"Suggested\s+validation\s+next\s+steps",
       r"Pasos\s+de\s+validaci[o\u00f3]n\s+sugeridos",
       r"Siguientes?\s+pasos?\s+de\s+validaci[o\u00f3]n",
     ],
   )
+  executable_follow_up_query = _extract_section(
+    answer,
+    [
+      r"Executable\s+follow-?up\s+query",
+      r"Consulta\s+ejecutable\s+de\s+seguimiento",
+      r"Consulta\s+de\s+seguimiento\s+ejecutable",
+    ],
+  )
+
+  direct_answer = _extract_section(
+    answer,
+    [
+      r"Direct\s+Answer",
+      r"Direct\s+answer",
+      r"Respuesta\s+directa",
+    ],
+  ).strip() or answer.strip()
 
   synthesis: dict[str, object] = {
-    "direct_answer": answer,
+    "direct_answer": direct_answer,
   }
   if mentioned_claim_ids:
     synthesis["mentioned_claim_ids"] = mentioned_claim_ids
@@ -889,6 +1185,8 @@ def _build_synthesis(
     synthesis["contradictions_summary"] = contradictions_summary
   if next_validation_step:
     synthesis["next_validation_step"] = next_validation_step
+  if executable_follow_up_query:
+    synthesis["executable_follow_up_query"] = executable_follow_up_query
   return synthesis
 
 
@@ -1046,6 +1344,35 @@ def _apply_response_guardrails(
       if was_labeled:
         flags.append("next_validation_step_external_labeled")
       guarded["next_validation_step"] = labeled_next_step
+
+    executable_raw = str(guarded.get("executable_follow_up_query") or "").strip()
+    executable_query = _normalize_executable_follow_up_query(executable_raw)
+    follow_up_claim_ids = _normalize_claim_id_list(
+        [
+            *(supporting_claim_ids or []),
+            *(mentioned_claim_ids or []),
+        ],
+        limit=5,
+    )
+    if executable_query:
+        flags.append("executable_follow_up_query_from_llm")
+    else:
+        executable_query = _template_executable_follow_up_query(
+            contradiction_rows,
+            language=language,
+            claim_ids=follow_up_claim_ids,
+        )
+        if executable_query:
+            flags.append("executable_follow_up_query_templated")
+    if executable_query:
+        executable_query = _attach_claim_ids_to_follow_up_query(
+            executable_query,
+            follow_up_claim_ids,
+            language=language,
+        )
+        guarded["executable_follow_up_query"] = executable_query
+    elif "executable_follow_up_query" in guarded:
+        del guarded["executable_follow_up_query"]
 
     guarded, verification_flags = _verify_cited_claim_ids(
         synthesis=guarded,
@@ -1257,7 +1584,7 @@ class ChatHandler(BaseHTTPRequestHandler):
 
     def _settings(self) -> dict[str, object]:
         return {
-            "db_path": os.getenv("ALS_DB_PATH", DEFAULT_DB_PATH),
+            "db_path": os.getenv("ALS_DATABASE_URL", os.getenv("ALS_DB_PATH", DEFAULT_DB_PATH)),
             "ollama_host": os.getenv("OLLAMA_HOST", DEFAULT_OLLAMA_HOST),
             "model": os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL),
             "context_limit": int(os.getenv("ALS_CONTEXT_LIMIT", str(DEFAULT_CONTEXT_LIMIT))),
@@ -1539,12 +1866,23 @@ class ChatHandler(BaseHTTPRequestHandler):
             _json_response(self, HTTPStatus.OK, {"status": "ok"})
             return
 
+        if path == "/api/models":
+            try:
+                settings = self._settings()
+                catalog = list_ollama_models(
+                    host=str(settings["ollama_host"]),
+                    default_model=str(settings["model"]),
+                )
+                _json_response(self, HTTPStatus.OK, catalog)
+            except Exception as exc:  # pragma: no cover
+                _json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
+            return
+
         if path == "/api/status":
             try:
                 settings = self._settings()
                 store = self._store(str(settings["db_path"]))
                 summary = store.summary()
-                flags = store.review_flags()
                 source_breakdown = store.source_article_breakdown()
                 latest_sync_at = store.latest_sync_timestamp()
                 manual_sync = get_manual_sync_status(db_path=str(settings["db_path"]))
@@ -1556,7 +1894,8 @@ class ChatHandler(BaseHTTPRequestHandler):
                         "avg_reliability": float(summary.get("avg_reliability", 0.0)),
                         "supports_count": int(summary.get("supports", 0)),
                         "contradicts_count": int(summary.get("contradicts", 0)),
-                        "review_flags_count": len(flags),
+                        # Kept for API stability; full flag detection stays on review endpoints.
+                        "review_flags_count": 0,
                         "model": str(settings.get("model", "")),
                         "host": str(settings.get("ollama_host", "")),
                         "context_limit": int(settings.get("context_limit", 0)),
@@ -2442,7 +2781,13 @@ class ChatHandler(BaseHTTPRequestHandler):
                     messages = [message for message in raw_messages if isinstance(message, dict)][-40:]
 
                     host = str(payload.get("host") or settings["ollama_host"])
-                    model = str(payload.get("model") or settings["model"])
+                    model_selection = str(payload.get("model") or "auto").strip() or "auto"
+                    model, model_selection_mode = _resolve_request_chat_model(
+                        payload=payload if isinstance(payload, dict) else {},
+                        settings=settings,
+                        messages=messages,
+                        host=host,
+                    )
                     context_limit = _parse_positive_int(payload.get("context_limit") or settings["context_limit"], int(settings["context_limit"]), max_value=200)
                     temperature = float(payload.get("temperature") or settings["temperature"])
                     timeout_seconds = int(payload.get("timeout_seconds") or settings["timeout_seconds"])
@@ -2451,10 +2796,12 @@ class ChatHandler(BaseHTTPRequestHandler):
                         language = "en"
 
                     trace["model"] = model
+                    trace["model_selection"] = model_selection
+                    trace["model_selection_mode"] = model_selection_mode
                     trace["language"] = language
                     trace["phase_seconds"]["loading_evidence"] = round(time.perf_counter() - phase_loading_started, 4)
 
-                    _stream_json_event(self, {"type": "status", "phase": "building_prompt", "message": "Building grounded prompt..."})
+                    _stream_json_event(self, {"type": "status", "phase": "building_prompt", "message": "Building grounded prompt...", "evidence_count": len(filtered_rows)})
                     phase_prompt_started = time.perf_counter()
                     prompt = _build_chat_prompt(messages, filtered_rows, context_limit, language)
                     trace["phase_seconds"]["building_prompt"] = round(time.perf_counter() - phase_prompt_started, 4)
@@ -2606,6 +2953,8 @@ class ChatHandler(BaseHTTPRequestHandler):
                 store = self._store(str(settings["db_path"]))
                 left = store.claim_lineage(claim_a)
                 right = store.claim_lineage(claim_b)
+                left_claim = left.get("claim", {}) if isinstance(left.get("claim"), dict) else {}
+                right_claim = right.get("claim", {}) if isinstance(right.get("claim"), dict) else {}
 
                 left_support = {
                     str(row.get("claim_id", ""))
@@ -2624,17 +2973,31 @@ class ChatHandler(BaseHTTPRequestHandler):
                     for row in right.get("lineage", {}).get("contradicting_citations", [])
                 }
 
+                typed = _type_claim_conflict(
+                    outcome_a=str(left_claim.get("outcome", "")),
+                    outcome_b=str(right_claim.get("outcome", "")),
+                    cohort_a=str(left_claim.get("cohort", "") or "unknown"),
+                    cohort_b=str(right_claim.get("cohort", "") or "unknown"),
+                    model_a=str(left_claim.get("model_system", "") or "unspecified"),
+                    model_b=str(right_claim.get("model_system", "") or "unspecified"),
+                    direction_a=str(left_claim.get("effect_direction", "")),
+                    direction_b=str(right_claim.get("effect_direction", "")),
+                )
+                field_diffs = _compare_field_diffs(left_claim, right_claim)
+
                 _json_response(
                     self,
                     HTTPStatus.OK,
                     {
-                        "claim_a": left.get("claim", {}),
-                        "claim_b": right.get("claim", {}),
+                        "claim_a": left_claim,
+                        "claim_b": right_claim,
                         "shared_supporting_count": len(left_support & right_support),
                         "shared_contradicting_count": len(left_contra & right_contra),
-                    "follow_up_suggestion": (
-                      "Run a stratified follow-up experiment focused on endpoint differences across cohorts and study design."
-                    ),
+                        "follow_up_suggestion": typed["follow_up_suggestion"],
+                        "conflict": {
+                            "contradiction_type": typed["contradiction_type"],
+                            "field_diffs": field_diffs,
+                        },
                     },
                 )
                 return
@@ -3465,7 +3828,13 @@ class ChatHandler(BaseHTTPRequestHandler):
             messages = [message for message in raw_messages if isinstance(message, dict)][-40:]
 
             host = str(payload.get("host") or settings["ollama_host"])
-            model = str(payload.get("model") or settings["model"])
+            model_selection = str(payload.get("model") or "auto").strip() or "auto"
+            model, model_selection_mode = _resolve_request_chat_model(
+                payload=payload if isinstance(payload, dict) else {},
+                settings=settings,
+                messages=messages,
+                host=host,
+            )
             context_limit = _parse_positive_int(payload.get("context_limit") or settings["context_limit"], int(settings["context_limit"]), max_value=200)
             temperature = float(payload.get("temperature") or settings["temperature"])
             timeout_seconds = int(payload.get("timeout_seconds") or settings["timeout_seconds"])
@@ -3480,6 +3849,8 @@ class ChatHandler(BaseHTTPRequestHandler):
               "started_at": int(time.time()),
               "status": "ok",
               "model": model,
+              "model_selection": model_selection,
+              "model_selection_mode": model_selection_mode,
               "language": language,
               "phase_seconds": {},
             }
@@ -3579,7 +3950,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="als-intel-web", description="Local ALS investigator web UI")
     parser.add_argument("--host", default=os.getenv("ALS_WEB_HOST", "0.0.0.0"), help="Host interface to bind")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to bind")
-    parser.add_argument("--db", default=DEFAULT_DB_PATH, help="SQLite evidence database path")
+    parser.add_argument("--db", default=DEFAULT_DB_PATH, help="Postgres DSN (default: ALS_DATABASE_URL)")
     parser.add_argument("--model", default=DEFAULT_OLLAMA_MODEL, help="Ollama model name")
     parser.add_argument("--ollama-host", default=DEFAULT_OLLAMA_HOST, help="Ollama base URL")
     parser.add_argument("--context-limit", type=int, default=DEFAULT_CONTEXT_LIMIT, help="Evidence rows included in prompt")
@@ -3595,6 +3966,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    os.environ["ALS_DATABASE_URL"] = args.db
     os.environ["ALS_DB_PATH"] = args.db
     os.environ["OLLAMA_HOST"] = args.ollama_host
     os.environ["OLLAMA_MODEL"] = args.model

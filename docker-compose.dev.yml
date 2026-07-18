@@ -1,7 +1,7 @@
 services:
   web:
     command: >-
-      sh -c "python -m pip install --quiet watchfiles &&
+      sh -c "python -m pip install --quiet -e . watchfiles &&
       watchfiles --filter python 'python -m als_intel.webui' /app/src /app/config /app/examples"
     environment:
       ALS_MAGIC_LINK_DEV_MODE: "0"
@@ -16,4 +16,9 @@ services:
     volumes:
       - ./:/app
     depends_on:
-      - mailpit
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+      ollama:
+        condition: service_started

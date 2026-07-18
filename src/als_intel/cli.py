@@ -37,34 +37,34 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init_db = subparsers.add_parser("init-db", help="Initialize SQLite evidence database")
-    init_db.add_argument("--db", required=True, help="Path to sqlite database")
+    init_db = subparsers.add_parser("init-db", help="Initialize PostgreSQL evidence database")
+    init_db.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
 
     ingest = subparsers.add_parser("ingest-jsonl", help="Ingest JSONL evidence records")
-    ingest.add_argument("--db", required=True, help="Path to sqlite database")
+    ingest.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     ingest.add_argument("--input", required=True, help="Path to input JSONL file")
 
     summarize = subparsers.add_parser("summarize", help="Show dataset summary")
-    summarize.add_argument("--db", required=True, help="Path to sqlite database")
+    summarize.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
 
     contradictions = subparsers.add_parser(
         "contradictions",
         help="List contradictory evidence pairs by entity/outcome",
     )
-    contradictions.add_argument("--db", required=True, help="Path to sqlite database")
+    contradictions.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
 
     drift = subparsers.add_parser(
         "drift",
         help="Show confidence drift over ingestion history",
     )
-    drift.add_argument("--db", required=True, help="Path to sqlite database")
+    drift.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     drift.add_argument("--claim-id", required=False, help="Optional claim id filter")
 
     chat = subparsers.add_parser(
         "chat",
         help="Ask grounded questions to a local LLM using ALS evidence context",
     )
-    chat.add_argument("--db", required=True, help="Path to sqlite database")
+    chat.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     chat.add_argument("--question", required=False, help="Question for one-shot mode")
     chat.add_argument("--interactive", action="store_true", help="Run interactive chat loop")
     chat.add_argument("--model", required=False, default="llama3.1:8b", help="Local model name")
@@ -77,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
         "export-finetune-data",
         help="Export ALS fine-tuning dataset JSONL files from local evidence",
     )
-    finetune_export.add_argument("--db", required=True, help="Path to sqlite database")
+    finetune_export.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     finetune_export.add_argument("--output-dir", required=True, help="Directory for train/val JSONL files")
     finetune_export.add_argument(
         "--min-reliability",
@@ -168,7 +168,7 @@ def build_parser() -> argparse.ArgumentParser:
         "benchmark-gate",
         help="Run validate -> merge -> evaluate benchmark workflow in one command",
     )
-    benchmark_gate.add_argument("--db", required=True, help="Path to sqlite database")
+    benchmark_gate.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     benchmark_gate.add_argument("--candidate-model-id", required=True, help="Candidate model id")
     benchmark_gate.add_argument("--input-path", required=True, help="Curated templates JSONL file or directory")
     benchmark_gate.add_argument("--output-dir", required=True, help="Directory for gate workflow outputs")
@@ -254,7 +254,7 @@ def build_parser() -> argparse.ArgumentParser:
         "train-model",
         help="Run local ALS model training pipeline and register model metadata",
     )
-    train_model.add_argument("--db", required=True, help="Path to sqlite database")
+    train_model.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     train_model.add_argument("--dataset-manifest", required=True, help="Path to dataset manifest.json")
     train_model.add_argument("--base-model", required=True, help="Base model id/name")
     train_model.add_argument("--output-dir", required=True, help="Directory for training outputs")
@@ -278,7 +278,7 @@ def build_parser() -> argparse.ArgumentParser:
         "model-registry",
         help="List registered trained models or fetch a model by id",
     )
-    model_registry.add_argument("--db", required=True, help="Path to sqlite database")
+    model_registry.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     model_registry.add_argument("--model-id", required=False, help="Optional model id")
     model_registry.add_argument("--limit", required=False, type=int, default=50, help="Max models to list")
 
@@ -286,7 +286,7 @@ def build_parser() -> argparse.ArgumentParser:
         "evaluate-model",
         help="Evaluate candidate model against benchmark and apply promotion gate",
     )
-    evaluate_model.add_argument("--db", required=True, help="Path to sqlite database")
+    evaluate_model.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     evaluate_model.add_argument("--candidate-model-id", required=True, help="Candidate model id")
     evaluate_model.add_argument("--benchmark-manifest", required=True, help="Benchmark manifest path")
     evaluate_model.add_argument("--output-dir", required=True, help="Directory for evaluation reports")
@@ -367,7 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
         "model-evaluations",
         help="List model evaluations or fetch evaluation by id",
     )
-    model_evaluations.add_argument("--db", required=True, help="Path to sqlite database")
+    model_evaluations.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     model_evaluations.add_argument("--evaluation-id", required=False, help="Optional evaluation id")
     model_evaluations.add_argument(
         "--candidate-model-id",
@@ -380,7 +380,7 @@ def build_parser() -> argparse.ArgumentParser:
         "agent-report",
         help="Run deterministic literature and skeptic agent reports",
     )
-    agent_report.add_argument("--db", required=True, help="Path to sqlite database")
+    agent_report.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     agent_report.add_argument(
         "--require-review-signoff",
         action="store_true",
@@ -391,14 +391,14 @@ def build_parser() -> argparse.ArgumentParser:
         "lineage",
         help="Show supporting and contradicting citation lineage for a claim",
     )
-    lineage.add_argument("--db", required=True, help="Path to sqlite database")
+    lineage.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     lineage.add_argument("--claim-id", required=True, help="Claim id to inspect")
 
     sync_cmd = subparsers.add_parser(
         "sync-source",
         help="Run incremental sync from a registered source",
     )
-    sync_cmd.add_argument("--db", required=True, help="Path to sqlite database")
+    sync_cmd.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     sync_cmd.add_argument("--source", required=True, choices=supported_sources(), help="Data source")
     sync_cmd.add_argument("--query", required=True, help="Source query term")
     sync_cmd.add_argument("--max-results", required=False, type=int, default=20, help="Maximum records")
@@ -440,7 +440,7 @@ def build_parser() -> argparse.ArgumentParser:
         "recent-changes",
         help="Show recent change-log entries from incremental sync",
     )
-    changes.add_argument("--db", required=True, help="Path to sqlite database")
+    changes.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     changes.add_argument("--run-id", required=False, type=int, help="Optional sync run id filter")
     changes.add_argument("--limit", required=False, type=int, default=50, help="Max change rows")
 
@@ -448,7 +448,7 @@ def build_parser() -> argparse.ArgumentParser:
         "hypothesis-queue",
         help="Generate hypothesis cards with supporting and contradictory evidence",
     )
-    hypotheses.add_argument("--db", required=True, help="Path to sqlite database")
+    hypotheses.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     hypotheses.add_argument("--limit", required=False, type=int, default=10, help="Max hypothesis cards")
     hypotheses.add_argument(
         "--require-review-signoff",
@@ -485,7 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
         "review-flags",
         help="Flag claims for mandatory human review based on drift and contradiction pressure",
     )
-    review_flags.add_argument("--db", required=True, help="Path to sqlite database")
+    review_flags.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     review_flags.add_argument(
         "--delta-threshold",
         required=False,
@@ -505,7 +505,7 @@ def build_parser() -> argparse.ArgumentParser:
         "schedule-sync",
         help="Run local scheduled sync cycles from a JSON plan",
     )
-    schedule.add_argument("--db", required=True, help="Path to sqlite database")
+    schedule.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     schedule.add_argument("--plan", required=True, help="Path to JSON sync plan")
     schedule.add_argument("--cycles", required=False, type=int, default=1, help="Number of sync cycles")
     schedule.add_argument(
@@ -520,7 +520,7 @@ def build_parser() -> argparse.ArgumentParser:
         "review-decision",
         help="Record a human review decision for a claim",
     )
-    decision.add_argument("--db", required=True, help="Path to sqlite database")
+    decision.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     decision.add_argument("--claim-id", required=True, help="Claim id")
     decision.add_argument(
         "--decision",
@@ -535,7 +535,7 @@ def build_parser() -> argparse.ArgumentParser:
         "review-log",
         help="List recorded human review decisions",
     )
-    decision_log.add_argument("--db", required=True, help="Path to sqlite database")
+    decision_log.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     decision_log.add_argument("--claim-id", required=False, help="Optional claim id filter")
     decision_log.add_argument("--limit", required=False, type=int, default=100, help="Max rows")
 
@@ -543,19 +543,19 @@ def build_parser() -> argparse.ArgumentParser:
         "failure-atlas",
         help="Build historical failure atlas and root-cause distribution",
     )
-    failure_atlas.add_argument("--db", required=True, help="Path to sqlite database")
+    failure_atlas.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
 
     debate = subparsers.add_parser(
         "debate-report",
         help="Run Debate Protocol v1 over contradiction set",
     )
-    debate.add_argument("--db", required=True, help="Path to sqlite database")
+    debate.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
 
     consensus = subparsers.add_parser(
         "consensus-timeline",
         help="Show consensus timeline with change rationale",
     )
-    consensus.add_argument("--db", required=True, help="Path to sqlite database")
+    consensus.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     consensus.add_argument("--entity", required=False, help="Optional entity filter")
     consensus.add_argument("--limit", required=False, type=int, default=100, help="Max events")
 
@@ -563,7 +563,7 @@ def build_parser() -> argparse.ArgumentParser:
         "quality-metrics",
         help="Compute calibration metrics (stability, disagreement, recurrence)",
     )
-    metrics.add_argument("--db", required=True, help="Path to sqlite database")
+    metrics.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     metrics.add_argument("--entity", required=False, help="Optional entity filter for timeline stability")
     metrics.add_argument("--limit", required=False, type=int, default=200, help="Max timeline events")
 
@@ -571,7 +571,7 @@ def build_parser() -> argparse.ArgumentParser:
         "causal-dashboard",
         help="Rank entities by causal risk and flag promotion blocks",
     )
-    causal_dash.add_argument("--db", required=True, help="Path to sqlite database")
+    causal_dash.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     causal_dash.add_argument("--entity", required=False, help="Optional entity filter")
     causal_dash.add_argument("--limit", required=False, type=int, default=50, help="Max entities")
     causal_dash.add_argument(
@@ -593,19 +593,19 @@ def build_parser() -> argparse.ArgumentParser:
         "graph-build",
         help="Rebuild biomedical knowledge graph from current evidence",
     )
-    graph_build.add_argument("--db", required=True, help="Path to sqlite database")
+    graph_build.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
 
     graph_overview = subparsers.add_parser(
         "graph-overview",
         help="Show knowledge graph node/edge counts",
     )
-    graph_overview.add_argument("--db", required=True, help="Path to sqlite database")
+    graph_overview.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
 
     graph_map = subparsers.add_parser(
         "graph-support-map",
         help="Show support-vs-contradiction map by entity and outcome",
     )
-    graph_map.add_argument("--db", required=True, help="Path to sqlite database")
+    graph_map.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     graph_map.add_argument("--entity", required=False, help="Optional entity filter")
     graph_map.add_argument("--limit", required=False, type=int, default=50, help="Max rows")
 
@@ -613,7 +613,7 @@ def build_parser() -> argparse.ArgumentParser:
         "graph-neighbors",
         help="Show outbound neighbors for a graph node key",
     )
-    graph_neighbors.add_argument("--db", required=True, help="Path to sqlite database")
+    graph_neighbors.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     graph_neighbors.add_argument("--node-key", required=True, help="Node key, e.g. entity:microglial activation")
     graph_neighbors.add_argument("--limit", required=False, type=int, default=20, help="Max neighbors")
 
@@ -621,7 +621,7 @@ def build_parser() -> argparse.ArgumentParser:
         "trial-analysis-agent",
         help="Run Clinical Trial Analysis Agent over graph and failure context",
     )
-    trial_agent.add_argument("--db", required=True, help="Path to sqlite database")
+    trial_agent.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     trial_agent.add_argument("--entity", required=False, help="Optional entity filter")
     trial_agent.add_argument("--limit", required=False, type=int, default=50, help="Max rows")
 
@@ -629,7 +629,7 @@ def build_parser() -> argparse.ArgumentParser:
         "repurposing-agent",
         help="Run Drug Repurposing Agent over graph and failure context",
     )
-    repurpose_agent.add_argument("--db", required=True, help="Path to sqlite database")
+    repurpose_agent.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     repurpose_agent.add_argument("--entity", required=False, help="Optional entity filter")
     repurpose_agent.add_argument("--limit", required=False, type=int, default=50, help="Max rows")
 
@@ -637,7 +637,7 @@ def build_parser() -> argparse.ArgumentParser:
         "graph-gap-hypotheses",
         help="Generate graph-driven underexplored gap hypotheses with why-now signals",
     )
-    gap_hypotheses.add_argument("--db", required=True, help="Path to sqlite database")
+    gap_hypotheses.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     gap_hypotheses.add_argument("--entity", required=False, help="Optional entity filter")
     gap_hypotheses.add_argument("--limit", required=False, type=int, default=10, help="Max hypothesis cards")
     gap_hypotheses.add_argument(
@@ -650,7 +650,7 @@ def build_parser() -> argparse.ArgumentParser:
         "systems-biology-agent",
         help="Run Systems Biology Agent over pathway and graph neighborhoods",
     )
-    systems_bio.add_argument("--db", required=True, help="Path to sqlite database")
+    systems_bio.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
     systems_bio.add_argument("--entity", required=False, help="Optional entity filter")
     systems_bio.add_argument("--limit", required=False, type=int, default=10, help="Max pathway cards")
 
@@ -664,6 +664,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional path to extraction fidelity gold JSON",
     )
 
+
+    migrate_sqlite = subparsers.add_parser(
+        "migrate-from-sqlite",
+        help="Import a legacy SQLite database into PostgreSQL",
+    )
+    migrate_sqlite.add_argument("--sqlite", required=True, help="Path to legacy SQLite file")
+    migrate_sqlite.add_argument("--db", required=False, default=None, help="Postgres DSN (default: ALS_DATABASE_URL)")
+    migrate_sqlite.add_argument(
+        "--no-truncate",
+        action="store_true",
+        help="Do not truncate Postgres tables before import",
+    )
+
     return parser
 
 
@@ -674,7 +687,20 @@ def main() -> None:
     if args.command == "init-db":
         store = EvidenceStore(args.db)
         store.init_db()
-        print(f"Initialized database: {args.db}")
+        print(f"Initialized database: {store.dsn}")
+        return
+
+    if args.command == "migrate-from-sqlite":
+        from als_intel.migrate_sqlite import format_migration_report, migrate_sqlite_to_postgres
+
+        report = migrate_sqlite_to_postgres(
+            sqlite_path=args.sqlite,
+            dsn=args.db,
+            truncate_first=not args.no_truncate,
+        )
+        print(format_migration_report(report))
+        if not report.get("ok"):
+            raise SystemExit(1)
         return
 
     if args.command == "ingest-jsonl":

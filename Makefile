@@ -9,12 +9,13 @@ PYTEST ?= $(PYTHON) -m pytest
 ALS ?= $(PYTHON) -m als_intel
 DOCKER_COMPOSE ?= docker compose
 CONTAINER_PYTHON ?= python
-DB_PATH ?= data/als_intel.sqlite
+DB_DSN ?= postgresql://als:als@localhost:5432/als_intel
 MODEL ?= llama3.1:8b
 OLLAMA_HOST ?= http://localhost:11434
 WEB_PORT ?= 8000
-WEB_DB_PATH ?= /app/data/als_intel.sqlite
+WEB_DB_DSN ?= postgresql://als:als@postgres:5432/als_intel
 WEB_SAMPLE_INPUT ?= /app/examples/sample_evidence.jsonl
+SQLITE_LEGACY ?= data/als_intel.sqlite
 SYNC_PLAN ?= config/sync_plan.all_public_sources.json
 SYNC_MULTILINGUAL_PLAN ?= config/sync_plan.multilingual_als.json
 SYNC_ALL_PLAN ?= config/sync_plan.all_public_sources.json
@@ -34,7 +35,7 @@ define require_npm
 endef
 HYPOTHESIS_LIMIT ?= 10
 
-.PHONY: help setup test lint init-db ingest-sample chat web-dev web-up web-down web-logs frontend-install frontend-build frontend-dev frontend-test docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries test-extraction-fidelity train-eval-promote nightly-ops docker-nightly-ops
+.PHONY: help setup test lint init-db migrate-from-sqlite ingest-sample chat web-dev web-up web-down web-logs frontend-install frontend-build frontend-dev frontend-test docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries test-extraction-fidelity train-eval-promote nightly-ops docker-nightly-ops
 
 DOCKER_DEV_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 DOCKER_GPU_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml
@@ -44,7 +45,7 @@ help:
 	@echo "Available targets:"
 	@echo "  setup                 Install the project in editable mode"
 	@echo "  test                  Run the full test suite"
-	@echo "  init-db               Create the SQLite evidence database"
+	@echo "  init-db               Initialize the PostgreSQL evidence database"
 	@echo "  ingest-sample         Ingest the sample evidence JSONL file"
 	@echo "  chat                  Run grounded chat from the CLI"
 	@echo "  frontend-install      Install frontend npm dependencies"
@@ -89,19 +90,22 @@ setup:
 	$(PIP) install -e ".[dev]"
 
 test:
-	$(PYTEST) -q
+	ALS_DATABASE_URL=$(DB_DSN) ALS_TEST_DATABASE_URL=$(DB_DSN) ALS_MIGRATIONS_DIR=$(CURDIR)/migrations/postgres $(PYTEST) -q
 
 lint:
 	$(PYTHON) -m compileall src tests
 
 init-db:
-	$(ALS) init-db --db $(DB_PATH)
+	ALS_DATABASE_URL=$(DB_DSN) $(ALS) init-db --db $(DB_DSN)
+
+migrate-from-sqlite:
+	ALS_DATABASE_URL=$(DB_DSN) $(ALS) migrate-from-sqlite --sqlite $(SQLITE_LEGACY) --db $(DB_DSN)
 
 ingest-sample:
-	$(ALS) ingest-jsonl --db $(DB_PATH) --input examples/sample_evidence.jsonl
+	$(ALS) ingest-jsonl --db $(DB_DSN) --input examples/sample_evidence.jsonl
 
 chat:
-	$(ALS) chat --db $(DB_PATH) --model $(MODEL) --host $(OLLAMA_HOST) --interactive
+	$(ALS) chat --db $(DB_DSN) --model $(MODEL) --host $(OLLAMA_HOST) --interactive
 
 frontend-install:
 	$(require_npm)
@@ -120,7 +124,7 @@ frontend-test:
 	cd frontend && $(NPM) test
 
 web-dev:
-	$(PYTHON) -m als_intel.webui --db $(DB_PATH) --ollama-host $(OLLAMA_HOST) --model $(MODEL) --port $(WEB_PORT)
+	$(PYTHON) -m als_intel.webui --db $(DB_DSN) --ollama-host $(OLLAMA_HOST) --model $(MODEL) --port $(WEB_PORT)
 
 web-up:
 	$(DOCKER_COMPOSE) up --build
@@ -148,8 +152,8 @@ docker-dev-gpu-up:
 	$(MAKE) docker-bootstrap DOCKER_COMPOSE="$(DOCKER_DEV_GPU_COMPOSE)"
 
 docker-bootstrap:
-	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel init-db --db $(WEB_DB_PATH)
-	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel ingest-jsonl --db $(WEB_DB_PATH) --input $(WEB_SAMPLE_INPUT)
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel init-db
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel ingest-jsonl --db $(WEB_DB_DSN) --input $(WEB_SAMPLE_INPUT)
 	$(DOCKER_COMPOSE) exec -T ollama ollama pull $(MODEL)
 
 docker-pull-model:
@@ -181,38 +185,38 @@ docker-reset:
 	$(DOCKER_COMPOSE) down -v
 
 sync-loop:
-	$(ALS) schedule-sync --db $(DB_PATH) --plan $(SYNC_PLAN) --cycles $(SYNC_CYCLES) --interval-seconds $(SYNC_INTERVAL_SECONDS)
+	$(ALS) schedule-sync --db $(DB_DSN) --plan $(SYNC_PLAN) --cycles $(SYNC_CYCLES) --interval-seconds $(SYNC_INTERVAL_SECONDS)
 
 sync-all-sources:
-	$(ALS) init-db --db $(DB_PATH)
-	$(ALS) schedule-sync --db $(DB_PATH) --plan $(SYNC_ALL_PLAN) --cycles $(SYNC_ALL_CYCLES) --interval-seconds $(SYNC_ALL_INTERVAL_SECONDS)
+	$(ALS) init-db --db $(DB_DSN)
+	$(ALS) schedule-sync --db $(DB_DSN) --plan $(SYNC_ALL_PLAN) --cycles $(SYNC_ALL_CYCLES) --interval-seconds $(SYNC_ALL_INTERVAL_SECONDS)
 
 sync-stats:
-	$(ALS) recent-changes --db $(DB_PATH) --limit $(SYNC_STATS_LIMIT)
-	$(ALS) summarize --db $(DB_PATH)
+	$(ALS) recent-changes --db $(DB_DSN) --limit $(SYNC_STATS_LIMIT)
+	$(ALS) summarize --db $(DB_DSN)
 
 hypothesis-check:
-	$(ALS) hypothesis-queue --db $(DB_PATH) --limit $(HYPOTHESIS_LIMIT) --require-review-signoff --enforce-causal-gate
+	$(ALS) hypothesis-queue --db $(DB_DSN) --limit $(HYPOTHESIS_LIMIT) --require-review-signoff --enforce-causal-gate
 
 docker-sync-loop:
-	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel schedule-sync --db $(WEB_DB_PATH) --plan /app/$(SYNC_PLAN) --cycles $(SYNC_CYCLES) --interval-seconds $(SYNC_INTERVAL_SECONDS)
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel schedule-sync --db $(WEB_DB_DSN) --plan /app/$(SYNC_PLAN) --cycles $(SYNC_CYCLES) --interval-seconds $(SYNC_INTERVAL_SECONDS)
 
 docker-sync-all-sources:
-	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel init-db --db $(WEB_DB_PATH)
-	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel schedule-sync --db $(WEB_DB_PATH) --plan /app/$(SYNC_ALL_PLAN) --cycles $(SYNC_ALL_CYCLES) --interval-seconds $(SYNC_ALL_INTERVAL_SECONDS)
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel init-db
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel schedule-sync --db $(WEB_DB_DSN) --plan /app/$(SYNC_ALL_PLAN) --cycles $(SYNC_ALL_CYCLES) --interval-seconds $(SYNC_ALL_INTERVAL_SECONDS)
 
 docker-sync-stats:
-	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel recent-changes --db $(WEB_DB_PATH) --limit $(SYNC_STATS_LIMIT)
-	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel summarize --db $(WEB_DB_PATH)
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel recent-changes --db $(WEB_DB_DSN) --limit $(SYNC_STATS_LIMIT)
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel summarize --db $(WEB_DB_DSN)
 
 docker-hypothesis-check:
-	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel hypothesis-queue --db $(WEB_DB_PATH) --limit $(HYPOTHESIS_LIMIT) --require-review-signoff --enforce-causal-gate
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel hypothesis-queue --db $(WEB_DB_DSN) --limit $(HYPOTHESIS_LIMIT) --require-review-signoff --enforce-causal-gate
 
 benchmark-gate:
-	$(ALS) benchmark-gate --db $(DB_PATH) --candidate-model-id $(MODEL) --input-path benchmarks/curated --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
+	$(ALS) benchmark-gate --db $(DB_DSN) --candidate-model-id $(MODEL) --input-path benchmarks/curated --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
 
 benchmark-gate-strict:
-	$(ALS) benchmark-gate --db $(DB_PATH) --candidate-model-id $(MODEL) --input-path benchmarks/curated --output-dir data/benchmark_gate_strict --policy-file config/benchmark_gate_policy.json
+	$(ALS) benchmark-gate --db $(DB_DSN) --candidate-model-id $(MODEL) --input-path benchmarks/curated --output-dir data/benchmark_gate_strict --policy-file config/benchmark_gate_policy.json
 
 validate-benchmarks:
 	$(ALS) validate-benchmarks --input-path benchmarks/curated --report data/curated_validation_report.json
@@ -228,14 +232,14 @@ test-extraction-fidelity:
 	$(ALS) extraction-fidelity-gate
 
 train-eval-promote:
-	$(ALS) export-finetune-data --db $(DB_PATH) --output-dir data/finetune --min-reliability 0.55 --min-source-reliability 0.6 --val-ratio 0.2 --split-strategy entity_outcome_hash --format messages --min-val-examples 5
-	@MODEL_ID=$$($(ALS) train-model --db $(DB_PATH) --dataset-manifest data/finetune/manifest.json --base-model $(MODEL) --output-dir data/models --trainer-command "bash scripts/local_trainer.sh {train_file} {val_file} {output_dir} {base_model}" | $(PYTHON) -c "import sys, json; print(json.load(sys.stdin)['model_id'])") && \
+	$(ALS) export-finetune-data --db $(DB_DSN) --output-dir data/finetune --min-reliability 0.55 --min-source-reliability 0.6 --val-ratio 0.2 --split-strategy entity_outcome_hash --format messages --min-val-examples 5
+	@MODEL_ID=$$($(ALS) train-model --db $(DB_DSN) --dataset-manifest data/finetune/manifest.json --base-model $(MODEL) --output-dir data/models --trainer-command "bash scripts/local_trainer.sh {train_file} {val_file} {output_dir} {base_model}" | $(PYTHON) -c "import sys, json; print(json.load(sys.stdin)['model_id'])") && \
 		echo "Registered candidate model: $$MODEL_ID" && \
-		$(ALS) benchmark-gate --db $(DB_PATH) --candidate-model-id $$MODEL_ID --input-path benchmarks/curated --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
+		$(ALS) benchmark-gate --db $(DB_DSN) --candidate-model-id $$MODEL_ID --input-path benchmarks/curated --output-dir data/benchmark_gate --policy-file config/benchmark_gate_policy.json
 
 nightly-ops:
 	$(MAKE) sync-all-sources
-	$(ALS) graph-build --db $(DB_PATH)
+	$(ALS) graph-build --db $(DB_DSN)
 	@if [ -z "$$ALS_AUTOMATION_WORKER_TOKEN" ]; then \
 		echo "Skipping worker tick: set ALS_AUTOMATION_WORKER_TOKEN to enable automation worker POST."; \
 	else \
@@ -247,7 +251,7 @@ nightly-ops:
 
 docker-nightly-ops:
 	$(MAKE) docker-sync-all-sources SYNC_ALL_PLAN=config/sync_plan.medium_public_sources.json
-	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel graph-build --db $(WEB_DB_PATH)
+	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel graph-build --db $(WEB_DB_DSN)
 	@if [ -z "$$ALS_AUTOMATION_WORKER_TOKEN" ]; then \
 		echo "Skipping worker tick: set ALS_AUTOMATION_WORKER_TOKEN to enable automation worker POST."; \
 	else \

@@ -1,12 +1,16 @@
 <template>
-  <div class="max-h-[480px] space-y-2 overflow-y-auto">
-    <EvidenceRow
-      v-for="row in displayRows"
-      :key="row.claim_id"
-      :row="row"
-      :highlight-contradictions="highlightContradictions"
-      @open="$emit('open', row.claim_id)"
-    />
+  <div class="max-h-[480px] overflow-y-auto">
+    <div data-tutorial="evidence" class="space-y-2">
+      <TransitionGroup name="fade-slide" tag="div" class="space-y-2">
+        <EvidenceRow
+          v-for="row in displayRows"
+          :key="row.claim_id"
+          :row="row"
+          :highlight-contradictions="highlightContradictions"
+          @open="$emit('open', row.claim_id)"
+        />
+      </TransitionGroup>
+    </div>
   </div>
 </template>
 

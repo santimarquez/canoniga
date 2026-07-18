@@ -15,7 +15,6 @@ DEFAULT_SYNC_PLAN_PATH = "config/sync_plan.all_public_sources.json"
 DEFAULT_COOLDOWN_HOURS = 6
 MANUAL_SYNC_SCOPE_ALL = "all"
 DEFAULT_SOURCE_DURATION_SECONDS = 120.0
-DEFAULT_MANUAL_SYNC_MAX_RESULTS = 250
 
 logger = logging.getLogger(__name__)
 
@@ -143,15 +142,8 @@ def _source_sync_status_label(activity: dict[str, object]) -> str:
 
 
 def _resolve_manual_sync_max_results(job: dict[str, object]) -> int:
-    raw = int(job.get("max_results", 20) or 0)
-    if raw > 0:
-        return raw
-    configured = str(os.getenv("ALS_MANUAL_SYNC_MAX_RESULTS", str(DEFAULT_MANUAL_SYNC_MAX_RESULTS))).strip()
-    try:
-        cap = int(configured)
-    except ValueError:
-        cap = DEFAULT_MANUAL_SYNC_MAX_RESULTS
-    return max(1, cap)
+    """Return plan max_results; 0 means unbounded (connectors treat <=0 as no limit)."""
+    return max(0, int(job.get("max_results", 20) or 0))
 
 
 def load_updatable_sources(*, db_path: str, plan_path: str | None = None) -> list[dict[str, object]]:
@@ -329,7 +321,11 @@ def get_manual_sync_status(*, db_path: str, plan_path: str | None = None) -> dic
         state_snapshot = dict(_MANUAL_SYNC_STATE)
     completed = int(state_snapshot.get("completed_sources", 0) or 0)
     total = int(state_snapshot.get("total_sources", 0) or 0)
-    can_trigger_all = remaining_all <= 0 and not in_progress
+    sources = load_updatable_sources(db_path=db_path, plan_path=plan_path)
+    # Enable Sync All when any source is eligible (e.g. never synced), even if the
+    # global "all" cooldown is still active from a prior full sync.
+    any_source_triggerable = any(bool(row.get("can_trigger")) for row in sources)
+    can_trigger_all = (not in_progress) and any_source_triggerable
     progress = _compute_sync_progress_estimate(
         store=store,
         state_snapshot=state_snapshot,
@@ -352,7 +348,7 @@ def get_manual_sync_status(*, db_path: str, plan_path: str | None = None) -> dic
         "estimated_remaining_seconds": progress["estimated_remaining_seconds"],
         "estimated_completion_at": progress["estimated_completion_at"],
         "latest_sync_at": store.latest_sync_timestamp(),
-        "sources": load_updatable_sources(db_path=db_path, plan_path=plan_path),
+        "sources": sources,
         "error": state_snapshot.get("error"),
         "last_completion_status": state_snapshot.get("completion_status"),
         "last_completion_error": state_snapshot.get("completion_error"),
@@ -402,11 +398,21 @@ def _execute_manual_sync(*, db_path: str, plan_path: str, scope: str, triggered_
         with _MANUAL_SYNC_LOCK:
             _MANUAL_SYNC_STATE["event_id"] = event_id
         if scope == "all":
-            jobs = load_sync_plan(plan_path)
+            jobs = [
+                job
+                for job in load_sync_plan(plan_path)
+                if cooldown_remaining_seconds(
+                    store,
+                    str(job.get("source", "")).strip().lower(),
+                )
+                <= 0
+            ]
             with _MANUAL_SYNC_LOCK:
                 _MANUAL_SYNC_STATE["total_sources"] = len(jobs)
                 _MANUAL_SYNC_STATE["completed_sources"] = 0
                 _MANUAL_SYNC_STATE["observed_durations"] = {}
+            if not jobs:
+                raise RuntimeError("No sources are currently eligible for sync")
             for index, job in enumerate(jobs):
                 source_name = str(job.get("source", "")).strip().lower()
                 source_started = datetime.now(timezone.utc)
@@ -426,6 +432,7 @@ def _execute_manual_sync(*, db_path: str, plan_path: str, scope: str, triggered_
                     (datetime.now(timezone.utc) - source_started).total_seconds(),
                 )
                 store.record_manual_sync_source_duration(source_name, duration_seconds)
+                store.record_manual_sync_success(source_name)
                 with _MANUAL_SYNC_LOCK:
                     observed = dict(_MANUAL_SYNC_STATE.get("observed_durations") or {})
                     observed[source_name] = duration_seconds
@@ -509,12 +516,27 @@ def start_manual_sync(
     if normalized_scope != "all":
         _job_for_source(resolved_plan, normalized_scope)
 
-    remaining = cooldown_remaining_seconds(store, normalized_scope)
-    if remaining > 0:
-        raise ManualSyncError(
-            f"Manual sync for {normalized_scope} is on cooldown for {remaining} more seconds",
-            status_code=429,
-        )
+    if normalized_scope == MANUAL_SYNC_SCOPE_ALL:
+        triggerable = [
+            row
+            for row in load_updatable_sources(db_path=db_path, plan_path=resolved_plan)
+            if bool(row.get("can_trigger"))
+        ]
+        if not triggerable:
+            remaining = cooldown_remaining_seconds(store, MANUAL_SYNC_SCOPE_ALL)
+            if remaining > 0:
+                raise ManualSyncError(
+                    f"Manual sync for all is on cooldown for {remaining} more seconds",
+                    status_code=429,
+                )
+            raise ManualSyncError("No sources are currently eligible for sync", status_code=400)
+    else:
+        remaining = cooldown_remaining_seconds(store, normalized_scope)
+        if remaining > 0:
+            raise ManualSyncError(
+                f"Manual sync for {normalized_scope} is on cooldown for {remaining} more seconds",
+                status_code=429,
+            )
 
     with _MANUAL_SYNC_LOCK:
         if bool(_MANUAL_SYNC_STATE.get("in_progress")) or store.has_running_sync_run():

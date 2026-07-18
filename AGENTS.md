@@ -1,10 +1,10 @@
 # AGENTS.md — Cursor guidance for canoniga
 
-This file orients AI agents working in the **canoniga** repository (`als-intel` v0.1.0): a local-first ALS scientific intelligence platform with stdlib-only runtime dependencies.
+This file orients AI agents working in the **canoniga** repository (`als-intel` v0.1.0): a local-first ALS scientific intelligence platform. Runtime deps stay stdlib-only except the Postgres driver (`psycopg`).
 
 ## Project purpose
 
-- Ingest, score, and store ALS-related evidence claims in SQLite.
+- Ingest, score, and store ALS-related evidence claims in PostgreSQL.
 - Detect contradictions, track confidence drift, and rank hypotheses.
 - Run deterministic agents (literature, skeptic, debate, graph, repurposing).
 - Ground local LLM chat (Ollama) on in-database evidence.
@@ -25,7 +25,7 @@ flowchart LR
     subgraph core [Core]
         Pipeline[pipeline / ingest]
         Scoring[scoring]
-        Store[EvidenceStore SQLite]
+        Store[EvidenceStore Postgres]
     end
     subgraph outputs [Outputs]
         CLI[cli.py]
@@ -49,7 +49,7 @@ flowchart LR
 | Frontend | `frontend/` | Vue 3 + TypeScript investigator UI |
 | Static | `src/als_intel/static_frontend.py`, `assets/dist/` | Built SPA assets |
 | Domain model | `src/als_intel/models.py` | `EvidenceRecord`, validation constants |
-| Persistence | `src/als_intel/store.py` | SQLite schema, queries, auth tables |
+| Persistence | `src/als_intel/store.py`, `db.py` | Postgres queries, auth tables; schema in `migrations/postgres/` |
 | Ingestion | `src/als_intel/pipeline.py`, `ingest.py` | JSONL → scored records |
 | Scoring | `src/als_intel/scoring.py` | Reliability decomposition |
 | Sync | `src/als_intel/sync.py`, `scheduler.py`, `connectors.py` | Incremental source sync |
@@ -65,7 +65,7 @@ flowchart LR
 |------|------|----------|
 | `agents/`, `extractors/` | Low | Preferred extension points |
 | `cli.py` (new subcommands) | Medium | Follow existing argparse patterns |
-| `store.py` (~3.3k lines) | High | Schema changes need migration logic |
+| `store.py` (~3.3k lines) | High | Prefer new SQL migrations under `migrations/postgres/` |
 | `webui.py` (~3.6k lines) | High | API handlers only; UI in `frontend/` |
 
 ## Development workflow
@@ -83,11 +83,12 @@ Then create a venv and install:
 ```bash
 python3.11 -m venv .venv && source .venv/bin/activate
 python -m pip install -e ".[dev]"
+docker compose up -d postgres   # or use an existing Postgres matching DB_DSN
 make init-db
 make ingest-sample
 ```
 
-Or use `make setup` after activating the venv (Makefile auto-detects `python3.11`, `python3.12`, or `python3.10` on macOS/Linux).
+Or use `make setup` after activating the venv (Makefile auto-detects `python3.11`, `python3.12`, or `python3.10` on macOS/Linux). Default DSN: `postgresql://als:als@localhost:5432/als_intel` (`ALS_DATABASE_URL`).
 
 **Platform note:** On Windows, the Makefile defaults to `py -3`. On macOS/Linux it picks the first Python 3.10+ binary on `PATH`. Override if needed:
 
@@ -130,18 +131,19 @@ i18n: source JSON lives in `src/als_intel/i18n/locales/`; sync copies into `fron
 
 ## Coding conventions
 
-- **Stdlib only** for runtime — do not add packages to `[project.dependencies]`.
+- **Stdlib only** for runtime except `psycopg[binary]` — do not add other packages to `[project.dependencies]`.
 - `from __future__ import annotations` in all modules.
 - `@dataclass(slots=True)` for record types; validate with `VALID_*` sets and `ValueError`.
 - Absolute imports: `from als_intel...`.
-- SQLite access only through `EvidenceStore` — no ad-hoc `sqlite3` in feature code.
+- Postgres access only through `EvidenceStore` / `als_intel.db` — no ad-hoc DB drivers in feature code. Legacy SQLite import lives in `migrate_sqlite.py` only.
 - CLI: add subcommands in `build_parser()`, dispatch in `main()`.
 
 ## Data layout
 
 | Path | Contents |
 |------|----------|
-| `data/` | Runtime SQLite DBs, models, evals, finetune artifacts (gitignored) |
+| `data/` | Models, evals, finetune artifacts, optional legacy `.sqlite` for import (gitignored) |
+| `migrations/postgres/` | Versioned Postgres schema SQL |
 | `examples/` | Sample JSONL for ingestion |
 | `config/` | Sync plans, benchmark gate policy |
 | `benchmarks/curated/` | Curated benchmark JSONL for strict CI |
@@ -150,8 +152,8 @@ i18n: source JSON lives in `src/als_intel/i18n/locales/`; sync copies into `fron
 ## Testing
 
 - Framework: **pytest** (installed via `.[dev]`).
-- Use `tmp_path` for isolated databases; seed via `EvidenceStore` or inline JSONL.
-- Avoid live network calls in unit tests.
+- Postgres required: `ALS_TEST_DATABASE_URL` / `ALS_DATABASE_URL`; `tests/conftest.py` truncates between tests.
+- Seed via `EvidenceStore()` or inline JSONL. Avoid live network calls in unit tests.
 - Web UI tests: `ThreadingHTTPServer` + `urllib.request` (see `tests/test_webui_api.py`).
 - Update `tests/fixtures/regression_queries.json` only when changing chat/guardrail behavior.
 
@@ -168,7 +170,10 @@ Do not break regression queries or benchmark gates when modifying chat, guardrai
 
 Key variables (full list in README):
 
-- `ALS_DB_PATH`, `OLLAMA_HOST`, `OLLAMA_MODEL` — runtime paths and LLM
+- `ALS_DATABASE_URL` (or `ALS_PG_*`), `OLLAMA_HOST`, `OLLAMA_MODEL` — DB DSN and LLM
+- Optional `ALS_OLLAMA_MODELS` — comma allowlist for `GET /api/models` / Auto picker
+- Legacy one-shot import: `als-intel migrate-from-sqlite --sqlite path/to/als_intel.sqlite`
+- Rollback: there is no dual-engine toggle; restore a prior release plus a SQLite/Postgres backup as appropriate.
 - `ALS_AUTH_ENABLED`, `ALS_MAGIC_LINK_DEV_MODE` — auth gate (dev mode returns link in API)
 - `ALS_CSRF_SECRET` — CSRF for authenticated POST endpoints
 - SMTP: `ALS_SMTP_HOST`, `ALS_SMTP_USER`, `ALS_SMTP_PASSWORD` — never commit credentials
@@ -184,7 +189,7 @@ Before large features, read the relevant plan in `ai/plans/`:
 | `AUTOMATION_FIRST_ROADMAP_PLAN.md` | Autonomous investigation runs |
 | `AUTH_SESSION_PLAN.md` | Auth/session hardening |
 | `DATASOURCE_PLAN.md` | New data source integration |
-| `POSTGRES_MIGRATION_PLAN.md` | Future Postgres migration |
+| `POSTGRES_MIGRATION_PLAN.md` | Postgres cutover (local/CI done; prod is ops) |
 
 ## Cursor rules
 

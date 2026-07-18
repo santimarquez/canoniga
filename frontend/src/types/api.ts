@@ -163,6 +163,7 @@ export interface Synthesis {
   supporting_claim_ids?: string[]
   contradictions_summary?: string
   next_validation_step?: string
+  executable_follow_up_query?: string
   verification_flags?: string[]
 }
 
@@ -182,6 +183,7 @@ export interface QueryTelemetry {
   verification_flags?: string[]
   total_seconds?: number
   error?: string
+  fallback_used?: boolean
 }
 
 export interface ChatReport {
@@ -213,6 +215,7 @@ export interface ChatStreamStatusEvent {
   type: 'status'
   phase: string
   message: string
+  evidence_count?: number
 }
 
 export interface ChatStreamChunkEvent {
@@ -244,6 +247,10 @@ export interface LineageClaim {
   effect_direction: string
   source_doi: string
   reliability_score: number
+  study_type?: string
+  year?: number
+  cohort?: string
+  model_system?: string
 }
 
 export interface LineageCitation {
@@ -267,12 +274,25 @@ export interface EvidenceLineageResponse {
   }
 }
 
+export interface CompareFieldDiff {
+  field: string
+  value_a: string
+  value_b: string
+  differs: boolean
+}
+
+export interface CompareConflict {
+  contradiction_type: string
+  field_diffs: CompareFieldDiff[]
+}
+
 export interface CompareResponse {
   claim_a: LineageClaim
   claim_b: LineageClaim
   shared_supporting_count: number
   shared_contradicting_count: number
   follow_up_suggestion: string
+  conflict?: CompareConflict
 }
 
 export interface SessionSummary {
@@ -366,29 +386,41 @@ export interface HypothesisQueueResponse {
   enforce_causal_gate: boolean
 }
 
-export interface TelemetryRow {
-  trace_id: string
-  mode: string
-  status: string
-  started_at: number
-  total_seconds?: number
-  model?: string
-  evidence_count?: number
-}
-
 export interface TelemetryResponse {
-  rows: TelemetryRow[]
+  traces: QueryTelemetry[]
+  total: number
+  limit: number
 }
 
-export interface FailureAtlasRow {
-  source: string
-  failure_count: number
-  last_failure_at: string
-  last_error: string
+export interface FailureAtlasEntry {
+  claim_id: string
+  entity: string
+  outcome: string
+  source_doi?: string
+  root_cause: string
+  root_cause_rationale?: string
+  reliability_score?: number | null
+  trial_status: string
+  termination_reason: string
+  primary_endpoint?: string
+  primary_endpoint_result: string
+  adverse_events_summary?: string
+  phase?: string
+  enrollment?: number | null
+}
+
+export interface FailureAtlasLesson {
+  root_cause: string
+  count: number
+  recommended_guardrail: string
 }
 
 export interface FailureAtlasResponse {
-  rows: FailureAtlasRow[]
+  total_failed_or_negative_records: number
+  structured_trial_failures: number
+  root_cause_distribution: Record<string, number>
+  entries: FailureAtlasEntry[]
+  lessons: FailureAtlasLesson[]
 }
 
 export interface DatabaseNodeSourceMetadataSummary {
@@ -439,12 +471,26 @@ export interface DatabaseNodesResponse {
 
 export interface AppConfig {
   model: string
+  modelSelection: string
   dbPath: string
   host: string
   contextLimit: number
   temperature: number
   timeoutSeconds: number
   authEnabled: boolean
+}
+
+export interface OllamaModelInfo {
+  id: string
+  name: string
+  size?: number | null
+}
+
+export interface ModelsResponse {
+  host: string
+  default: string
+  models: OllamaModelInfo[]
+  error?: string | null
 }
 
 export const EVIDENCE_TYPE_OPTIONS = [

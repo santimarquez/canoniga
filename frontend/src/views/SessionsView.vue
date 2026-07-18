@@ -1,5 +1,5 @@
 <template>
-  <section class="rounded-xl border border-slate-200 bg-white p-4">
+  <section class="rounded-xl border border-slate-200 bg-white p-4" data-tutorial="sessions_list">
     <div class="mb-4 flex items-center justify-between">
       <h2 class="text-lg font-semibold text-slate-900">{{ t('app.saved_sessions') }}</h2>
       <UiButton variant="secondary" size="sm" :loading="loading" @click="load">{{ t('app.refresh') }}</UiButton>

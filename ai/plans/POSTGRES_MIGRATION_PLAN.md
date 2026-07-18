@@ -203,7 +203,11 @@ Deliverables:
 - Created PostgreSQL migration plan for all environments, including local development.
 - Defined phased rollout, validation gates, rollback controls, and environment-specific checklists.
 
+### 2026-07-18
+- Completed Postgres-only cutover in code: `psycopg` core dep, `als_intel/db.py`, `migrations/postgres/001_initial.sql`, EvidenceStore on Postgres, Docker/CI/Makefile wiring, `migrate-from-sqlite` CLI, full pytest green on Postgres.
+- Runtime no longer supports SQLite as a backend; rollback is restore previous release + SQLite backup only.
+
 ## Current Status
-- Overall: Planned
-- Active phase: Phase 0 readiness
-- Blockers: none identified yet
+- Overall: Local/dev/CI cutover complete (Phases 1–4 for app code)
+- Active phase: Production cutover is ops (commands/checklist in this plan); not performed by the agent
+- Blockers: none for local/Docker/CI

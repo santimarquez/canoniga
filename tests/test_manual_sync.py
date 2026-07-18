@@ -101,12 +101,35 @@ def test_load_updatable_sources_sorts_least_updated_first(tmp_path: Path) -> Non
 
 def test_cooldown_blocks_recent_all_scope_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db_path = tmp_path / "als.sqlite"
+    plan = "config/sync_plan.smoke_public_sources.json"
     _record_recent_manual_success(db_path, "all", hours_ago=1.0)
+    # All individual sources are also on cooldown → Sync All must stay disabled.
+    import json
+
+    for source in [str(job["source"]) for job in json.loads(Path(plan).read_text(encoding="utf-8"))]:
+        _record_recent_manual_success(db_path, source, hours_ago=1.0)
     monkeypatch.setenv("ALS_MANUAL_SYNC_COOLDOWN_HOURS", "6")
     store = EvidenceStore(db_path)
     assert cooldown_remaining_seconds(store, "all") > 0
-    status = get_manual_sync_status(db_path=str(db_path), plan_path="config/sync_plan.smoke_public_sources.json")
+    status = get_manual_sync_status(db_path=str(db_path), plan_path=plan)
     assert status["can_trigger_all"] is False
+
+
+def test_sync_all_enabled_when_source_never_synced_despite_all_cooldown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "als.sqlite"
+    plan = "config/sync_plan.smoke_public_sources.json"
+    _record_recent_manual_success(db_path, "all", hours_ago=1.0)
+    _record_recent_manual_success(db_path, "pubmed", hours_ago=1.0)
+    monkeypatch.setenv("ALS_MANUAL_SYNC_COOLDOWN_HOURS", "6")
+    status = get_manual_sync_status(db_path=str(db_path), plan_path=plan)
+    # Never-synced sources remain eligible, so Sync All stays enabled.
+    assert status["can_trigger_all"] is True
+    assert any(
+        row["sync_status"] == "never" and bool(row["can_trigger"])
+        for row in status["sources"]
+    )
 
 
 def test_cooldown_blocks_recent_source_sync(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -180,16 +203,67 @@ def test_failed_manual_sync_does_not_apply_cooldown(tmp_path: Path, monkeypatch:
 
 def test_start_manual_sync_rejects_during_cooldown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db_path = tmp_path / "als.sqlite"
+    plan = "config/sync_plan.smoke_public_sources.json"
+    import json
+
     _record_recent_manual_success(db_path, "all", hours_ago=2.0)
+    for source in [str(job["source"]) for job in json.loads(Path(plan).read_text(encoding="utf-8"))]:
+        _record_recent_manual_success(db_path, source, hours_ago=2.0)
     monkeypatch.setenv("ALS_MANUAL_SYNC_COOLDOWN_HOURS", "6")
     with pytest.raises(ManualSyncError) as exc:
         start_manual_sync(
             db_path=str(db_path),
             scope="all",
             triggered_by="usr_test",
-            plan_path="config/sync_plan.smoke_public_sources.json",
+            plan_path=plan,
         )
     assert exc.value.status_code == 429
+
+
+def test_start_manual_sync_all_allows_never_synced_during_all_cooldown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "als.sqlite"
+    plan = "config/sync_plan.smoke_public_sources.json"
+    _record_recent_manual_success(db_path, "all", hours_ago=2.0)
+    _record_recent_manual_success(db_path, "pubmed", hours_ago=2.0)
+    monkeypatch.setenv("ALS_MANUAL_SYNC_COOLDOWN_HOURS", "6")
+    synced: list[str] = []
+
+    def _fake_run_single_job(db_path: str, job: dict[str, object]) -> dict[str, object]:
+        source = str(job["source"])
+        synced.append(source)
+        return {
+            "status": "ok",
+            "source": source,
+            "run_id": len(synced),
+            "inserted": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "notes": "",
+        }
+
+    monkeypatch.setattr("als_intel.manual_sync._run_single_job", _fake_run_single_job)
+    started = start_manual_sync(
+        db_path=str(db_path),
+        scope="all",
+        triggered_by="usr_test",
+        plan_path=plan,
+    )
+    assert started["status"] == "started"
+
+    import time
+
+    deadline = time.time() + 3.0
+    while time.time() < deadline:
+        status = get_manual_sync_status(db_path=str(db_path), plan_path=plan)
+        if not status["in_progress"]:
+            break
+        time.sleep(0.05)
+
+    assert "pubmed" not in synced
+    assert synced
+    assert status["last_completion_status"] == "success"
 
 
 def test_start_manual_sync_starts_background_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -235,7 +309,7 @@ def test_start_manual_sync_starts_background_job(tmp_path: Path, monkeypatch: py
     assert audit_events[0]["status"] == "success"
 
 
-def test_manual_sync_caps_unbounded_plan_max_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_manual_sync_honors_unbounded_plan_max_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import als_intel.manual_sync as manual_sync_module
 
     captured: list[int] = []
@@ -252,7 +326,6 @@ def test_manual_sync_caps_unbounded_plan_max_results(tmp_path: Path, monkeypatch
             "notes": "",
         }
 
-    monkeypatch.setenv("ALS_MANUAL_SYNC_MAX_RESULTS", "125")
     monkeypatch.setattr("als_intel.manual_sync._run_single_job", _capture_job)
     plan_path = tmp_path / "plan.json"
     plan_path.write_text('[{"source":"fda_labels","query":"als","max_results":0}]', encoding="utf-8")
@@ -273,7 +346,7 @@ def test_manual_sync_caps_unbounded_plan_max_results(tmp_path: Path, monkeypatch
             break
         time.sleep(0.05)
 
-    assert captured == [125]
+    assert captured == [0]
 
 
 def test_evidence_reads_continue_while_sync_run_is_running(tmp_path: Path) -> None:

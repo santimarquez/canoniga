@@ -6,8 +6,8 @@ alwaysApply: false
 
 # Testing
 
-- Use `tmp_path` for isolated SQLite databases in every test.
-- Seed data via `EvidenceStore` or inline JSONL strings — no shared mutable DB files.
+- Tests share Postgres via `ALS_TEST_DATABASE_URL` / `ALS_DATABASE_URL`; `tests/conftest.py` truncates tables between tests.
+- Seed data via `EvidenceStore()` or inline JSONL — do not rely on SQLite files.
 - Mirror production imports: `from als_intel...`.
 - Web UI tests: spin `ThreadingHTTPServer`, call endpoints with `urllib.request` (see `test_webui_api.py`).
 - Avoid live network calls; mock or use fixture files under `tests/fixtures/`.

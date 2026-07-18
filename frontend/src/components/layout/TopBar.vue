@@ -10,7 +10,6 @@
         <div class="hidden h-6 w-px bg-slate-200 sm:block" />
 
         <div class="flex items-center gap-2">
-          <StatusBar />
           <DbStatusPopover />
         </div>
       </div>
@@ -21,6 +20,7 @@
             v-for="item in navItems"
             :key="item.name"
             :to="{ name: item.name }"
+            :data-tutorial="item.tutorial"
             class="rounded-lg px-3 py-2 text-sm font-medium transition-colors"
             :class="
               route.name === item.name
@@ -66,6 +66,7 @@
         v-for="item in navItems"
         :key="`mobile-${item.name}`"
         :to="{ name: item.name }"
+        :data-tutorial="item.tutorial"
         class="shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium"
         :class="route.name === item.name ? 'bg-brand-primary text-white' : 'bg-slate-100 text-slate-700'"
       >
@@ -83,7 +84,6 @@ import DbStatusPopover from '@/components/db/DbStatusPopover.vue'
 import { LOGO_ALT, LOGO_URL } from '@/brand'
 import UiButton from '@/components/ui/UiButton.vue'
 import UiPopover from '@/components/ui/UiPopover.vue'
-import StatusBar from '@/components/layout/StatusBar.vue'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 
@@ -95,10 +95,10 @@ const route = useRoute()
 const profileMenuRef = ref<InstanceType<typeof UiPopover> | null>(null)
 
 const navItems = [
-  { name: 'assistant', label: 'nav_assistant' },
-  { name: 'sessions', label: 'nav_sessions' },
-  { name: 'hypothesis', label: 'nav_hypothesis' },
-  { name: 'review', label: 'nav_review' },
+  { name: 'assistant', label: 'nav_assistant', tutorial: 'assistant_nav' },
+  { name: 'sessions', label: 'nav_sessions', tutorial: 'sessions_nav' },
+  { name: 'hypothesis', label: 'nav_hypothesis', tutorial: 'hypothesis_nav' },
+  { name: 'review', label: 'nav_review', tutorial: 'review_nav' },
 ] as const
 
 function closeProfileMenu() {

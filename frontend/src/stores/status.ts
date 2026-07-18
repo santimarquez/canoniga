@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { fetchStatus } from '@/api/auth'
 import { fetchManualSyncStatus, triggerManualSync } from '@/api/app'
 import { useAppStore } from '@/stores/app'
+import { useToastStore } from '@/stores/toast'
 import type { ManualSyncStatusResponse, NoticeOptions, StatusResponse } from '@/types/api'
 
 function syncSucceeded(data: ManualSyncStatusResponse, scope: string | null): boolean {
@@ -22,8 +23,6 @@ export const useStatusStore = defineStore('status', {
     pollTimer: null as ReturnType<typeof setInterval> | null,
     wasActive: false,
     pendingScope: null as string | null,
-    flash: null as NoticeOptions | null,
-    flashTimer: null as ReturnType<typeof setTimeout> | null,
     configSeeded: false,
   }),
   actions: {
@@ -64,6 +63,8 @@ export const useStatusStore = defineStore('status', {
             this.setFlash({ type: 'error', message })
           }
           this.pendingScope = null
+          // Refresh totals + per-source breakdown after sync finishes.
+          await this.refresh()
         }
         this.wasActive = false
       }
@@ -87,17 +88,10 @@ export const useStatusStore = defineStore('status', {
       }
     },
     setFlash(options: NoticeOptions) {
-      this.flash = options
-      if (this.flashTimer) clearTimeout(this.flashTimer)
-      this.flashTimer = setTimeout(() => {
-        this.flash = null
-        this.flashTimer = null
-      }, 8000)
+      useToastStore().push(options)
     },
     clearFlash() {
-      this.flash = null
-      if (this.flashTimer) clearTimeout(this.flashTimer)
-      this.flashTimer = null
+      useToastStore().clear()
     },
   },
 })

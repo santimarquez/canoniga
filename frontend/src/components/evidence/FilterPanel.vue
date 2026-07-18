@@ -58,22 +58,21 @@
 
     <div class="flex items-center gap-2">
       <UiButton variant="ghost" size="sm" @click="reset">{{ t('app.reset_filters') }}</UiButton>
-      <UiNotice v-if="notice" type="info" :message="notice" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UiButton from '@/components/ui/UiButton.vue'
-import UiNotice from '@/components/ui/UiNotice.vue'
 import { useAppStore } from '@/stores/app'
+import { useToastStore } from '@/stores/toast'
 import { DEFAULT_FILTERS, EVIDENCE_TYPE_OPTIONS } from '@/types/api'
 
 const { t } = useI18n()
 const app = useAppStore()
-const notice = ref('')
+const toast = useToastStore()
 
 const reliabilityPercent = computed(() => Math.round(app.filters.min_reliability * 100))
 
@@ -90,6 +89,6 @@ function toggleType(type: string) {
 
 function reset() {
   app.filters = { ...DEFAULT_FILTERS, evidence_types: [...DEFAULT_FILTERS.evidence_types] }
-  notice.value = t('app.filters_reset')
+  toast.push({ type: 'info', message: t('app.filters_reset') })
 }
 </script>

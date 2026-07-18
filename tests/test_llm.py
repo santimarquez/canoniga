@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import json
+
 from als_intel.llm import (
     LocalLLMError,
     _effective_timeout_seconds,
     build_grounded_prompt,
     generate_with_ollama,
     generate_with_ollama_stream,
+    infer_model_size_b,
+    list_ollama_models,
+    resolve_chat_model,
+    score_question_complexity,
 )
 
 
@@ -108,3 +114,60 @@ def test_generate_with_ollama_raises_on_empty_response() -> None:
             assert False, "Expected LocalLLMError"
         except LocalLLMError:
             assert True
+
+
+def test_list_ollama_models_filters_allowlist() -> None:
+    payload = {
+        "models": [
+            {"name": "llama3.1:8b", "size": 1},
+            {"name": "qwen2.5:14b", "size": 2},
+            {"name": "gemma2:9b", "size": 3},
+        ]
+    }
+    with patch("als_intel.llm.urlopen", return_value=_FakeResponse(json.dumps(payload))):
+        catalog = list_ollama_models(
+            host="http://ollama.test",
+            default_model="llama3.1:8b",
+            allowlist=["qwen", "gemma2"],
+        )
+    names = [row["name"] for row in catalog["models"]]
+    assert names == ["gemma2:9b", "qwen2.5:14b"]
+    assert catalog["error"] is None
+
+
+def test_resolve_chat_model_prefers_larger_for_complex_questions() -> None:
+    available = ["llama3.1:8b", "qwen2.5:14b", "gemma2:2b"]
+    short, mode_short = resolve_chat_model(
+        "What is ALS?",
+        available=available,
+        default="llama3.1:8b",
+        selection="auto",
+    )
+    assert mode_short == "auto"
+    assert short in {"gemma2:2b", "llama3.1:8b"}
+
+    complex_q = (
+        "Compare contradictory mechanistic causal pathways and synthesize "
+        "uncertainty with validation next steps across claim trade-offs."
+    )
+    assert score_question_complexity(complex_q) >= 6
+    large, mode_large = resolve_chat_model(
+        complex_q,
+        available=available,
+        default="llama3.1:8b",
+        selection="auto",
+    )
+    assert mode_large == "auto"
+    assert large == "qwen2.5:14b"
+    assert infer_model_size_b("qwen2.5:14b") == 14
+
+
+def test_resolve_chat_model_manual_selection() -> None:
+    model, mode = resolve_chat_model(
+        "Anything",
+        available=["llama3.1:8b", "gemma2:9b"],
+        default="llama3.1:8b",
+        selection="gemma2:9b",
+    )
+    assert model == "gemma2:9b"
+    assert mode == "manual"

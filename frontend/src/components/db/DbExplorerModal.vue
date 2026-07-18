@@ -13,67 +13,70 @@
     </template>
 
     <div class="relative min-h-0 flex-1">
-      <div
-        v-show="view === 'list'"
-        class="absolute inset-0 flex flex-col gap-3"
-      >
-        <form class="shrink-0 space-y-2" @submit.prevent="runSearch">
-        <label class="block text-xs font-medium text-slate-700" for="dbExplorerSearch">
-          {{ t('app.db_search_label') }}
-        </label>
-        <div class="flex gap-2">
-          <input
-            id="dbExplorerSearch"
-            v-model="query"
-            class="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
-            :placeholder="t('app.db_search_placeholder')"
-            autocomplete="off"
-          />
-          <UiButton type="submit" :loading="loading && !loadingMore">{{ t('app.db_search') }}</UiButton>
-          <UiButton variant="secondary" type="button" @click="clear">{{ t('app.db_clear') }}</UiButton>
-        </div>
-      </form>
+      <Transition name="page-fade">
+        <div
+          v-if="view === 'list'"
+          key="list"
+          class="absolute inset-0 flex flex-col gap-3"
+        >
+          <form class="shrink-0 space-y-2" data-tutorial="db_explorer" @submit.prevent="runSearch">
+            <label class="block text-xs font-medium text-slate-700" for="dbExplorerSearch">
+              {{ t('app.db_search_label') }}
+            </label>
+            <div class="flex gap-2">
+              <input
+                id="dbExplorerSearch"
+                v-model="query"
+                class="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                :placeholder="t('app.db_search_placeholder')"
+                autocomplete="off"
+              />
+              <UiButton type="submit" :loading="loading && !loadingMore">{{ t('app.db_search') }}</UiButton>
+              <UiButton variant="secondary" type="button" @click="clear">{{ t('app.db_clear') }}</UiButton>
+            </div>
+          </form>
 
-      <div
-        ref="listRef"
-        class="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200"
-        @scroll="onScroll"
-      >
-        <div v-if="loading && rows.length === 0" class="flex justify-center py-12">
-          <UiSpinner size="lg" />
-        </div>
-        <p v-else-if="rows.length === 0" class="p-4 text-sm text-slate-500">{{ t('app.db_no_rows') }}</p>
-        <div v-else class="divide-y divide-slate-100">
-          <button
-            v-for="row in rows"
-            :key="row.claim_id"
-            type="button"
-            class="block w-full px-4 py-3 text-left hover:bg-slate-50"
-            @click="openClaim(row.claim_id)"
+          <div
+            ref="listRef"
+            class="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200"
+            @scroll="onScroll"
           >
-            <p class="text-sm font-medium text-slate-900">{{ row.claim_id }}</p>
-            <p class="mt-1 line-clamp-2 text-xs text-slate-600">{{ row.claim_text }}</p>
-            <p class="mt-1 text-[11px] text-slate-500">
-              {{ row.entity }} · {{ row.outcome }} · {{ formatReliability(row.reliability_score) }}
-            </p>
-          </button>
-        </div>
-        <div v-if="loadingMore" class="flex justify-center py-4">
-          <UiSpinner size="sm" />
-        </div>
-      </div>
+            <div v-if="loading && rows.length === 0" class="flex justify-center py-12">
+              <UiSpinner size="lg" />
+            </div>
+            <p v-else-if="rows.length === 0" class="p-4 text-sm text-slate-500">{{ t('app.db_no_rows') }}</p>
+            <div v-else class="divide-y divide-slate-100">
+              <button
+                v-for="row in rows"
+                :key="row.claim_id"
+                type="button"
+                class="block w-full px-4 py-3 text-left hover:bg-slate-50"
+                @click="openClaim(row.claim_id)"
+              >
+                <p class="text-sm font-medium text-slate-900">{{ row.claim_id }}</p>
+                <p class="mt-1 line-clamp-2 text-xs text-slate-600">{{ row.claim_text }}</p>
+                <p class="mt-1 text-[11px] text-slate-500">
+                  {{ row.entity }} · {{ row.outcome }} · {{ formatReliability(row.reliability_score) }}
+                </p>
+              </button>
+            </div>
+            <div v-if="loadingMore" class="flex justify-center py-4">
+              <UiSpinner size="sm" />
+            </div>
+          </div>
 
-      <p class="shrink-0 text-xs text-slate-500">
-        {{ resultsCountLabel }}
-      </p>
-      </div>
-
-      <div
-        v-show="view === 'detail'"
-        class="absolute inset-0 overflow-y-auto"
-      >
-        <ClaimLineagePanel :claim-id="selectedClaimId" />
-      </div>
+          <p class="shrink-0 text-xs text-slate-500">
+            {{ resultsCountLabel }}
+          </p>
+        </div>
+        <div
+          v-else
+          key="detail"
+          class="absolute inset-0 overflow-y-auto"
+        >
+          <ClaimLineagePanel :claim-id="selectedClaimId" />
+        </div>
+      </Transition>
     </div>
   </UiModal>
 </template>
