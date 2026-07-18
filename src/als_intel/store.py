@@ -904,6 +904,7 @@ class EvidenceStore:
         *,
         filters: dict[str, object],
         limit: int | None = None,
+        lean: bool = False,
     ) -> list[dict[str, str | int | float | bool]]:
         safe_limit: int | None = None
         if limit is not None:
@@ -944,8 +945,10 @@ class EvidenceStore:
                 "reliability_score DESC, claim_id ASC"
             )
 
+        # Lean chat path skips claim_text (hydrated later for cited ids only).
+        claim_text_expr = "'' AS claim_text" if lean else "claim_text"
         query = f"""
-        SELECT claim_id, claim_text, disease, entity, relation, outcome, effect_direction,
+        SELECT claim_id, {claim_text_expr}, disease, entity, relation, outcome, effect_direction,
                study_type, sample_size, endpoint_validity, replication_count, peer_reviewed,
                year, source_title, source_doi, cohort, model_system, source_type,
                extraction_confidence, causal_evidence_type, source_reliability_score, reliability_score
@@ -962,6 +965,38 @@ class EvidenceStore:
             rows = conn.execute(query, tuple(params)).fetchall()
 
         return self._map_evidence_rows(rows)
+
+    def get_evidence_by_ids(
+        self,
+        claim_ids: list[str],
+    ) -> list[dict[str, str | int | float | bool]]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in claim_ids:
+            claim_id = str(raw or "").strip()
+            if not claim_id or claim_id in seen:
+                continue
+            seen.add(claim_id)
+            cleaned.append(claim_id)
+        if not cleaned:
+            return []
+
+        placeholders = ", ".join(["?"] * len(cleaned))
+        query = f"""
+        SELECT claim_id, claim_text, disease, entity, relation, outcome, effect_direction,
+               study_type, sample_size, endpoint_validity, replication_count, peer_reviewed,
+               year, source_title, source_doi, cohort, model_system, source_type,
+               extraction_confidence, causal_evidence_type, source_reliability_score, reliability_score
+        FROM evidence
+        WHERE claim_id IN ({placeholders})
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(cleaned)).fetchall()
+
+        mapped = self._map_evidence_rows(rows)
+        by_id = {str(row.get("claim_id", "")).strip(): row for row in mapped}
+        # Preserve requested order for stable cited-row hydration.
+        return [by_id[claim_id] for claim_id in cleaned if claim_id in by_id]
 
     def claim_lineage(self, claim_id: str) -> dict[str, object]:
         with self._connect() as conn:

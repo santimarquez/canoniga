@@ -48,6 +48,8 @@ Two-column layout at `lg+` when evidence panel is open: scrollable chat transcri
 
 **Composer** (`ChatComposer.vue`): ChatGPT-style prompt dock with `+` menu (database explorer, filter modal), `ModelPicker` (Ollama catalog + Auto; selection in `localStorage` key `als_model_selection`), send button inside bottom-right of textarea, single rotating status line below prompt (`useStreamStatus` maps `streamPhase` to `app.stream_*` i18n keys). Model list comes from `GET /api/models`; chat resolves `model: "auto"` via `resolve_chat_model` in `llm.py`.
 
+Chat evidence loading (quality-safe latency): candidates are fetched lean (no `claim_text`) with limit `max(context_limit * 10, 200)` unless `evidence_max_rows` / `ALS_CHAT_EVIDENCE_MAX_ROWS` is a positive override. Contradiction pairing runs on the prioritized prompt-candidate set. Cited claim rows are hydrated by id (including escape-hatch ids outside the candidate window) before verification and the sidebar payload.
+
 **Query / report** (`StreamReport.vue`, `MarkdownContent.vue`): full answer rendered as sanitized markdown HTML during stream and after completion. Session actions appear after first user message or loaded session.
 
 **Evidence sidebar** (`EvidenceSidebar.vue`): collapsible via `UiDisclosure` + `app.evidenceCollapsed` (default open). When collapsed on `lg+`, the third grid column is removed so the query column expands; reopen via the **Evidence Nodes** button in `AssistantView.vue`. Idle hint before first query (`app.evidence_hint_idle`); empty hint when report has zero cited rows (`app.evidence_hint_empty`). Contradiction highlighting/sorting follows `app.filters.highlight_contradictions` in `EvidenceRow.vue` / `EvidenceList.vue`.

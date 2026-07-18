@@ -63,6 +63,9 @@ DEFAULT_TIMEOUT_SECONDS = int(os.getenv("ALS_TIMEOUT_SECONDS", "300"))
 DEFAULT_AUTH_ENABLED = os.getenv("ALS_AUTH_ENABLED", "1").strip() not in {"0", "false", "False"}
 MAX_CITED_EVIDENCE_ROWS = 80
 TELEMETRY_MAX_RECENT = 200
+CHAT_EVIDENCE_MIN_CANDIDATES = 200
+CHAT_EVIDENCE_CONTEXT_MULTIPLIER = 10
+CHAT_EVIDENCE_HARD_CAP = 20000
 
 _RECENT_QUERY_TELEMETRY: deque[dict[str, object]] = deque(maxlen=TELEMETRY_MAX_RECENT)
 _RECENT_QUERY_TELEMETRY_LOCK = Lock()
@@ -176,7 +179,7 @@ def _build_chat_prompt(
   evidence_rows: list[dict[str, object]],
   context_limit: int,
   language: str,
-) -> str:
+) -> tuple[str, list[dict[str, object]]]:
     latest_user_message = _extract_latest_user_message(messages)
     if not latest_user_message:
         raise ValueError("At least one user message is required")
@@ -198,7 +201,7 @@ def _build_chat_prompt(
 
     if transcript_lines:
         prompt += "\n\nConversation history:\n" + "\n".join(transcript_lines)
-    return prompt
+    return prompt, prioritized_rows
 
 
 def _apply_evidence_filters(evidence_rows: list[dict[str, object]], filters: dict[str, object]) -> list[dict[str, object]]:
@@ -690,6 +693,10 @@ def _parse_non_negative_int(value: object, default: int, *, max_value: int = 100
 
 
 def _resolve_chat_evidence_limit(payload: dict[str, object]) -> int | None:
+    """Legacy resolver for non-chat endpoints (filter/search/synthesis).
+
+    Explicit positive values cap the fetch. Non-positive keeps unbounded fetch.
+    """
     raw_value = payload.get("evidence_max_rows")
     if raw_value is None or (isinstance(raw_value, str) and not raw_value.strip()):
       raw_value = os.getenv("ALS_CHAT_EVIDENCE_MAX_ROWS", "0")
@@ -701,7 +708,207 @@ def _resolve_chat_evidence_limit(payload: dict[str, object]) -> int | None:
 
     if parsed <= 0:
       return None
-    return min(parsed, 20000)
+    return min(parsed, CHAT_EVIDENCE_HARD_CAP)
+
+
+def _resolve_chat_candidate_limit(payload: dict[str, object], context_limit: int) -> int:
+    """Quality-preserving candidate cap for chat: max(context_limit * 10, 200).
+
+    Explicit evidence_max_rows / ALS_CHAT_EVIDENCE_MAX_ROWS overrides when > 0.
+    Non-positive no longer means unbounded for chat.
+    """
+    raw_value = payload.get("evidence_max_rows")
+    if raw_value is None or (isinstance(raw_value, str) and not raw_value.strip()):
+      raw_value = os.getenv("ALS_CHAT_EVIDENCE_MAX_ROWS", "0")
+
+    try:
+      parsed = int(raw_value)
+    except (TypeError, ValueError):
+      parsed = 0
+
+    if parsed > 0:
+      return min(parsed, CHAT_EVIDENCE_HARD_CAP)
+
+    safe_context = max(1, int(context_limit))
+    return min(
+        max(safe_context * CHAT_EVIDENCE_CONTEXT_MULTIPLIER, CHAT_EVIDENCE_MIN_CANDIDATES),
+        CHAT_EVIDENCE_HARD_CAP,
+    )
+
+
+def _collect_synthesis_claim_ids(synthesis: dict[str, object]) -> list[str]:
+    collected: list[str] = []
+    seen: set[str] = set()
+    for field in ("mentioned_claim_ids", "supporting_claim_ids"):
+        raw = synthesis.get(field) if isinstance(synthesis.get(field), list) else []
+        for item in raw:
+            claim_id = str(item or "").strip()
+            if not claim_id or claim_id in seen:
+                continue
+            seen.add(claim_id)
+            collected.append(claim_id)
+    return collected
+
+
+def _merge_hydrated_evidence_rows(
+    candidate_rows: list[dict[str, object]],
+    hydrated_rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    by_id = {
+        str(row.get("claim_id", "")).strip(): dict(row)
+        for row in candidate_rows
+        if str(row.get("claim_id", "")).strip()
+    }
+    for row in hydrated_rows:
+        claim_id = str(row.get("claim_id", "")).strip()
+        if not claim_id:
+            continue
+        by_id[claim_id] = dict(row)
+    # Prefer candidate order, then any escaped hydrated ids.
+    ordered: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for row in candidate_rows:
+        claim_id = str(row.get("claim_id", "")).strip()
+        if not claim_id or claim_id in seen:
+            continue
+        ordered.append(by_id.get(claim_id, row))
+        seen.add(claim_id)
+    for row in hydrated_rows:
+        claim_id = str(row.get("claim_id", "")).strip()
+        if not claim_id or claim_id in seen:
+            continue
+        ordered.append(by_id[claim_id])
+        seen.add(claim_id)
+    return ordered
+
+
+def _hydrate_chat_evidence(
+    store: EvidenceStore,
+    *,
+    candidate_rows: list[dict[str, object]],
+    claim_ids: list[str],
+    trace: dict[str, object] | None = None,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[str]]:
+    """Hydrate full rows for cited ids; return merged candidates, cited rows, escaped ids."""
+    wanted = [str(cid).strip() for cid in claim_ids if str(cid).strip()]
+    if not wanted:
+        return list(candidate_rows), [], []
+
+    candidate_ids = {
+        str(row.get("claim_id", "")).strip()
+        for row in candidate_rows
+        if str(row.get("claim_id", "")).strip()
+    }
+    escaped_ids = [cid for cid in wanted if cid not in candidate_ids]
+    hydrated = _attach_source_urls_to_rows(store.get_evidence_by_ids(wanted))
+    merged = _merge_hydrated_evidence_rows(candidate_rows, hydrated)
+    by_id = {
+        str(row.get("claim_id", "")).strip(): row
+        for row in hydrated
+        if str(row.get("claim_id", "")).strip()
+    }
+    cited = [by_id[cid] for cid in wanted if cid in by_id]
+    if trace is not None and escaped_ids:
+        trace["escaped_cited_claim_ids"] = escaped_ids
+        trace["escaped_cited_count"] = len(escaped_ids)
+    return merged, cited, escaped_ids
+
+
+def _extract_claim_ids_from_answer(answer: str) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"claim_id\s*[:=]\s*([A-Za-z0-9_:\-]+)", str(answer or ""), flags=re.IGNORECASE):
+        claim_id = str(match.group(1) or "").strip()
+        if not claim_id or claim_id in seen:
+            continue
+        seen.add(claim_id)
+        found.append(claim_id)
+    return found
+
+
+def _post_process_chat_answer(
+    *,
+    store: EvidenceStore,
+    answer: str,
+    prioritized_rows: list[dict[str, object]],
+    language: str,
+    payload: dict[str, object],
+    model: str,
+    host: str,
+    temperature: float,
+    timeout_seconds: int,
+    trace: dict[str, object] | None = None,
+) -> tuple[dict[str, object], list[str], list[dict[str, object]]]:
+    """Guardrails + cited-row hydration. Returns synthesis, guardrail_flags, cited_rows."""
+    contradictions = _contradiction_pairs_from_rows(prioritized_rows, limit=300)
+    synthesis = _build_synthesis(
+        answer=answer,
+        evidence_rows=prioritized_rows,
+        contradiction_rows=contradictions,
+    )
+    hydrate_ids = list(
+        dict.fromkeys(
+            [
+                *_collect_synthesis_claim_ids(synthesis),
+                *_extract_claim_ids_from_answer(answer),
+                *_claim_ids_mentioned_in_text(answer, prioritized_rows),
+            ]
+        )
+    )
+    merged_rows, _cited_seed, escaped_ids = _hydrate_chat_evidence(
+        store,
+        candidate_rows=prioritized_rows,
+        claim_ids=hydrate_ids,
+        trace=trace,
+    )
+    if escaped_ids:
+        synthesis = _build_synthesis(
+            answer=answer,
+            evidence_rows=merged_rows,
+            contradiction_rows=contradictions,
+        )
+    synthesis, guardrail_flags = _apply_response_guardrails(
+        answer=answer,
+        synthesis=synthesis,
+        evidence_rows=merged_rows,
+        contradiction_rows=contradictions,
+        language=language,
+    )
+    mentioned_claim_ids = (
+        synthesis.get("mentioned_claim_ids")
+        if isinstance(synthesis.get("mentioned_claim_ids"), list)
+        else []
+    )
+    mentioned_ids = [str(x).strip() for x in mentioned_claim_ids if str(x).strip()]
+    by_id = {
+        str(row.get("claim_id", "")).strip(): row
+        for row in merged_rows
+        if str(row.get("claim_id", "")).strip()
+    }
+    missing = [
+        cid
+        for cid in mentioned_ids
+        if cid not in by_id or not str(by_id[cid].get("claim_text", "")).strip()
+    ]
+    if missing:
+        for row in _attach_source_urls_to_rows(store.get_evidence_by_ids(missing)):
+            claim_id = str(row.get("claim_id", "")).strip()
+            if claim_id:
+                by_id[claim_id] = row
+    cited_evidence_rows = [by_id[cid] for cid in mentioned_ids if cid in by_id]
+    cited_evidence_rows = _rank_cited_evidence_rows(cited_evidence_rows)
+    cited_evidence_rows = cited_evidence_rows[:MAX_CITED_EVIDENCE_ROWS]
+    if _should_translate_cited_rows(payload=payload, language=language):
+        cited_evidence_rows = _translate_evidence_rows_for_language(
+            rows=cited_evidence_rows,
+            language=language,
+            model=model,
+            host=host,
+            temperature=temperature,
+            timeout_seconds=min(int(timeout_seconds), 20),
+            max_rows=20,
+        )
+    return synthesis, guardrail_flags, cited_evidence_rows
 
 
 def _paginate_rows(rows: list[dict[str, object]], *, limit: int, offset: int) -> tuple[list[dict[str, object]], int, bool]:
@@ -2768,12 +2975,6 @@ class ChatHandler(BaseHTTPRequestHandler):
                     filters = payload.get("filters", {})
                     if not isinstance(filters, dict):
                         filters = {}
-                    filtered_rows = _attach_source_urls_to_rows(
-                      store.filter_evidence(
-                        filters=filters,
-                        limit=_resolve_chat_evidence_limit(payload),
-                      )
-                    )
 
                     raw_messages = payload.get("messages", [])
                     if not isinstance(raw_messages, list):
@@ -2795,15 +2996,25 @@ class ChatHandler(BaseHTTPRequestHandler):
                     if language not in {"en", "es"}:
                         language = "en"
 
+                    candidate_limit = _resolve_chat_candidate_limit(payload, context_limit)
+                    filtered_rows = _attach_source_urls_to_rows(
+                      store.filter_evidence(
+                        filters=filters,
+                        limit=candidate_limit,
+                        lean=True,
+                      )
+                    )
+
                     trace["model"] = model
                     trace["model_selection"] = model_selection
                     trace["model_selection_mode"] = model_selection_mode
                     trace["language"] = language
+                    trace["evidence_candidate_limit"] = candidate_limit
                     trace["phase_seconds"]["loading_evidence"] = round(time.perf_counter() - phase_loading_started, 4)
 
                     _stream_json_event(self, {"type": "status", "phase": "building_prompt", "message": "Building grounded prompt...", "evidence_count": len(filtered_rows)})
                     phase_prompt_started = time.perf_counter()
-                    prompt = _build_chat_prompt(messages, filtered_rows, context_limit, language)
+                    prompt, prioritized_rows = _build_chat_prompt(messages, filtered_rows, context_limit, language)
                     trace["phase_seconds"]["building_prompt"] = round(time.perf_counter() - phase_prompt_started, 4)
                     _stream_json_event(self, {"type": "status", "phase": "generating", "message": "Generating answer..."})
 
@@ -2828,32 +3039,18 @@ class ChatHandler(BaseHTTPRequestHandler):
 
                     _stream_json_event(self, {"type": "status", "phase": "post_processing", "message": "Linking citations and synthesis metadata..."})
                     phase_post_started = time.perf_counter()
-                    contradictions = _contradiction_pairs_from_rows(filtered_rows, limit=300)
-                    synthesis = _build_synthesis(answer=answer, evidence_rows=filtered_rows, contradiction_rows=contradictions)
-                    synthesis, guardrail_flags = _apply_response_guardrails(
-                      answer=answer,
-                      synthesis=synthesis,
-                      evidence_rows=filtered_rows,
-                      contradiction_rows=contradictions,
-                      language=language,
-                    )
-                    mentioned_claim_ids = synthesis.get("mentioned_claim_ids") if isinstance(synthesis.get("mentioned_claim_ids"), list) else []
-                    mentioned_claim_id_set = {str(x) for x in mentioned_claim_ids if str(x).strip()}
-                    cited_evidence_rows = [
-                        row for row in filtered_rows if str(row.get("claim_id", "")).strip() in mentioned_claim_id_set
-                    ]
-                    cited_evidence_rows = _rank_cited_evidence_rows(cited_evidence_rows)
-                    cited_evidence_rows = cited_evidence_rows[:MAX_CITED_EVIDENCE_ROWS]
-                    if _should_translate_cited_rows(payload=payload, language=language):
-                      cited_evidence_rows = _translate_evidence_rows_for_language(
-                        rows=cited_evidence_rows,
+                    synthesis, guardrail_flags, cited_evidence_rows = _post_process_chat_answer(
+                        store=store,
+                        answer=answer,
+                        prioritized_rows=prioritized_rows,
                         language=language,
+                        payload=payload if isinstance(payload, dict) else {},
                         model=model,
                         host=host,
                         temperature=temperature,
-                        timeout_seconds=min(timeout_seconds, 20),
-                        max_rows=20,
-                      )
+                        timeout_seconds=timeout_seconds,
+                        trace=trace,
+                    )
                     trace["phase_seconds"]["post_processing"] = round(time.perf_counter() - phase_post_started, 4)
                     trace["evidence_count"] = len(filtered_rows)
                     trace["cited_evidence_count"] = len(cited_evidence_rows)
@@ -3756,15 +3953,19 @@ class ChatHandler(BaseHTTPRequestHandler):
             filters = payload.get("filters", {})
             if not isinstance(filters, dict):
                 filters = {}
-            filtered_rows = _attach_source_urls_to_rows(
-              store.filter_evidence(
-                filters=filters,
-                limit=_resolve_chat_evidence_limit(payload),
-              )
-            )
 
             limit = _parse_positive_int(payload.get("limit", 50), 50, max_value=500)
             offset = _parse_non_negative_int(payload.get("offset", 0), 0)
+
+            if path in {"/api/evidence/filter", "/api/evidence/search", "/api/synthesis"}:
+                filtered_rows = _attach_source_urls_to_rows(
+                  store.filter_evidence(
+                    filters=filters,
+                    limit=_resolve_chat_evidence_limit(payload),
+                  )
+                )
+            else:
+                filtered_rows = []
 
             if path == "/api/evidence/filter":
                 page_rows, total, has_more = _paginate_rows(filtered_rows, limit=limit, offset=offset)
@@ -3842,6 +4043,16 @@ class ChatHandler(BaseHTTPRequestHandler):
             if language not in {"en", "es"}:
               language = "en"
 
+            candidate_limit = _resolve_chat_candidate_limit(payload, context_limit)
+            phase_loading_started = time.perf_counter()
+            filtered_rows = _attach_source_urls_to_rows(
+              store.filter_evidence(
+                filters=filters,
+                limit=candidate_limit,
+                lean=True,
+              )
+            )
+
             trace: dict[str, object] = {
               "trace_id": _new_trace_id(),
               "mode": "sync",
@@ -3852,13 +4063,15 @@ class ChatHandler(BaseHTTPRequestHandler):
               "model_selection": model_selection,
               "model_selection_mode": model_selection_mode,
               "language": language,
+              "evidence_candidate_limit": candidate_limit,
               "phase_seconds": {},
             }
             if current_user is not None:
                 trace["user_id"] = str(current_user.get("user_id", ""))
+            trace["phase_seconds"]["loading_evidence"] = round(time.perf_counter() - phase_loading_started, 4)
 
             phase_prompt_started = time.perf_counter()
-            prompt = _build_chat_prompt(messages, filtered_rows, context_limit, language)
+            prompt, prioritized_rows = _build_chat_prompt(messages, filtered_rows, context_limit, language)
             trace["phase_seconds"]["building_prompt"] = round(time.perf_counter() - phase_prompt_started, 4)
 
             phase_generation_started = time.perf_counter()
@@ -3873,33 +4086,19 @@ class ChatHandler(BaseHTTPRequestHandler):
             trace["phase_seconds"]["generating"] = round(generated_seconds, 4)
 
             phase_post_started = time.perf_counter()
-            contradictions = _contradiction_pairs_from_rows(filtered_rows, limit=300)
-            synthesis = _build_synthesis(answer=answer, evidence_rows=filtered_rows, contradiction_rows=contradictions)
-            synthesis, guardrail_flags = _apply_response_guardrails(
+            synthesis, guardrail_flags, cited_evidence_rows = _post_process_chat_answer(
+                store=store,
                 answer=answer,
-                synthesis=synthesis,
-                evidence_rows=filtered_rows,
-                contradiction_rows=contradictions,
-              language=language,
-            )
-            mentioned_claim_ids = synthesis.get("mentioned_claim_ids") if isinstance(synthesis.get("mentioned_claim_ids"), list) else []
-            mentioned_claim_id_set = {str(x) for x in mentioned_claim_ids if str(x).strip()}
-            cited_evidence_rows = [
-              row for row in filtered_rows if str(row.get("claim_id", "")).strip() in mentioned_claim_id_set
-            ]
-            cited_evidence_rows = _rank_cited_evidence_rows(cited_evidence_rows)
-            cited_evidence_rows = cited_evidence_rows[:MAX_CITED_EVIDENCE_ROWS]
-            if _should_translate_cited_rows(payload=payload, language=language):
-              cited_evidence_rows = _translate_evidence_rows_for_language(
-                rows=cited_evidence_rows,
+                prioritized_rows=prioritized_rows,
                 language=language,
+                payload=payload if isinstance(payload, dict) else {},
                 model=model,
                 host=host,
                 temperature=temperature,
                 timeout_seconds=timeout_seconds,
-              )
+                trace=trace,
+            )
             trace["phase_seconds"]["post_processing"] = round(time.perf_counter() - phase_post_started, 4)
-            trace["phase_seconds"]["loading_evidence"] = 0.0
             trace["evidence_count"] = len(filtered_rows)
             trace["cited_evidence_count"] = len(cited_evidence_rows)
             trace["guardrail_flags"] = guardrail_flags

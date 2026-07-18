@@ -16,6 +16,7 @@ from als_intel.webui import (
     _governance_doc_body,
     _prioritize_evidence_rows_for_question,
     _rank_cited_evidence_rows,
+    _resolve_chat_candidate_limit,
     _search_evidence_rows,
 )
 from als_intel.static_frontend import serve_repo_asset, spa_available, serve_spa_or_static
@@ -41,11 +42,76 @@ def test_build_chat_prompt_uses_latest_user_message_and_context() -> None:
         }
     ]
 
-    prompt = _build_chat_prompt(messages, evidence_rows, context_limit=5, language="en")
+    prompt, prioritized = _build_chat_prompt(messages, evidence_rows, context_limit=5, language="en")
 
     assert "What is the uncertainty?" in prompt
     assert "claim_id=C1" in prompt
     assert "Conversation history:" in prompt
+    assert prioritized[0]["claim_id"] == "C1"
+
+
+def test_resolve_chat_candidate_limit_uses_quality_preserving_floor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ALS_CHAT_EVIDENCE_MAX_ROWS", raising=False)
+    assert _resolve_chat_candidate_limit({}, context_limit=20) == 200
+    assert _resolve_chat_candidate_limit({}, context_limit=50) == 500
+    assert _resolve_chat_candidate_limit({"evidence_max_rows": 120}, context_limit=20) == 120
+    monkeypatch.setenv("ALS_CHAT_EVIDENCE_MAX_ROWS", "0")
+    assert _resolve_chat_candidate_limit({}, context_limit=20) == 200
+
+
+def test_lean_filter_and_hydrate_preserve_prompt_evidence(pg_dsn: str) -> None:
+    from als_intel.llm import build_grounded_prompt
+    from als_intel.models import EvidenceRecord
+    from als_intel.store import EvidenceStore
+
+    store = EvidenceStore(pg_dsn)
+    store.init_db()
+    for idx in range(5):
+        store.upsert_evidence(
+            EvidenceRecord(
+                claim_id=f"C{idx}",
+                claim_text=f"long claim text {idx} " * 20,
+                disease="ALS",
+                entity=f"entity-{idx}",
+                relation="modulates",
+                outcome="survival",
+                effect_direction="supports" if idx % 2 == 0 else "contradicts",
+                study_type="observational",
+                sample_size=10,
+                endpoint_validity=0.5,
+                replication_count=0,
+                peer_reviewed=True,
+                year=2024,
+                source_title="title",
+                source_doi=f"10.1/c{idx}",
+            ),
+            score_breakdown={
+                "study": 0.1,
+                "sample": 0.1,
+                "replication": 0.1,
+                "peer_review": 0.1,
+                "endpoint": 0.1,
+                "source": 0.1,
+                "extraction": 0.1,
+                "total": 0.5 + idx * 0.05,
+            },
+            source_score=0.5,
+        )
+
+    filters = {"min_reliability": 0.0, "evidence_types": [], "date_window": "all"}
+    full_rows = store.filter_evidence(filters=filters, limit=200, lean=False)
+    lean_rows = store.filter_evidence(filters=filters, limit=200, lean=True)
+    assert [row["claim_id"] for row in lean_rows] == [row["claim_id"] for row in full_rows]
+    assert all(not str(row.get("claim_text", "")).strip() for row in lean_rows)
+
+    question = "What evidence matters?"
+    prompt_full = build_grounded_prompt(question, full_rows, context_limit=3)
+    prompt_lean = build_grounded_prompt(question, lean_rows, context_limit=3)
+    assert prompt_full == prompt_lean
+
+    hydrated = store.get_evidence_by_ids(["C4", "C2"])
+    assert [row["claim_id"] for row in hydrated] == ["C4", "C2"]
+    assert all(str(row.get("claim_text", "")).strip() for row in hydrated)
 
 
 def test_prioritize_evidence_rows_for_question_puts_mentioned_ids_first() -> None:

@@ -172,6 +172,7 @@ Key variables (full list in README):
 
 - `ALS_DATABASE_URL` (or `ALS_PG_*`), `OLLAMA_HOST`, `OLLAMA_MODEL` — DB DSN and LLM
 - Optional `ALS_OLLAMA_MODELS` — comma allowlist for `GET /api/models` / Auto picker
+- Chat evidence candidates default to `max(context_limit * 10, 200)` (cap 20000). Override with `ALS_CHAT_EVIDENCE_MAX_ROWS` or request `evidence_max_rows` (>0). Non-positive no longer means unbounded for chat.
 - Legacy one-shot import: `als-intel migrate-from-sqlite --sqlite path/to/als_intel.sqlite`
 - Rollback: there is no dual-engine toggle; restore a prior release plus a SQLite/Postgres backup as appropriate.
 - `ALS_AUTH_ENABLED`, `ALS_MAGIC_LINK_DEV_MODE` — auth gate (dev mode returns link in API)
