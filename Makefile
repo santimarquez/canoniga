@@ -10,6 +10,7 @@ ALS ?= $(PYTHON) -m als_intel
 DOCKER_COMPOSE ?= docker compose
 CONTAINER_PYTHON ?= python
 DB_DSN ?= postgresql://als:als@localhost:5432/als_intel
+TEST_DB_DSN ?= postgresql://als:als@localhost:5432/als_intel_test
 MODEL ?= llama3.1:8b
 OLLAMA_HOST ?= http://localhost:11434
 WEB_PORT ?= 8000
@@ -35,7 +36,7 @@ define require_npm
 endef
 HYPOTHESIS_LIMIT ?= 10
 
-.PHONY: help setup test lint init-db migrate-from-sqlite ingest-sample chat web-dev web-up web-down web-logs frontend-install frontend-build frontend-dev frontend-test docker-up docker-down docker-bootstrap docker-pull-model docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries test-extraction-fidelity train-eval-promote nightly-ops docker-nightly-ops
+.PHONY: help setup test lint init-db init-test-db migrate-from-sqlite ingest-sample chat web-dev web-up web-down web-logs frontend-install frontend-build frontend-dev frontend-test docker-up docker-down docker-bootstrap docker-pull-model docker-pull-models docker-reset ollama-ps gpu-check docker-gpu-up docker-dev-gpu-up sync-loop sync-all-sources sync-stats hypothesis-check docker-sync-loop docker-sync-all-sources docker-sync-stats docker-hypothesis-check benchmark-gate benchmark-gate-strict validate-benchmarks merge-benchmarks test-regression-queries test-extraction-fidelity train-eval-promote nightly-ops docker-nightly-ops
 
 DOCKER_DEV_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
 DOCKER_GPU_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml
@@ -44,8 +45,9 @@ DOCKER_DEV_GPU_COMPOSE = $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compo
 help:
 	@echo "Available targets:"
 	@echo "  setup                 Install the project in editable mode"
-	@echo "  test                  Run the full test suite"
+	@echo "  test                  Run the full test suite (isolated als_intel_test DB)"
 	@echo "  init-db               Initialize the PostgreSQL evidence database"
+	@echo "  init-test-db          Create/migrate the isolated als_intel_test database"
 	@echo "  ingest-sample         Ingest the sample evidence JSONL file"
 	@echo "  chat                  Run grounded chat from the CLI"
 	@echo "  frontend-install      Install frontend npm dependencies"
@@ -61,8 +63,9 @@ help:
 	@echo "                        Mailpit UI at http://localhost:8025 (SMTP magic links)"
 	@echo "  docker-gpu-up         Start Docker stack with NVIDIA GPU for Ollama (Linux only)"
 	@echo "  docker-dev-gpu-up     Start Docker dev stack with NVIDIA GPU (Linux only)"
-	@echo "  docker-bootstrap       Init DB, ingest sample evidence, and pull model in Docker"
-	@echo "  docker-pull-model      Pull the Ollama model inside Docker"
+	@echo "  docker-bootstrap       Init DB, ingest sample evidence, and pull curated Ollama models"
+	@echo "  docker-pull-model      Pull a single Ollama model (MODEL=...) inside Docker"
+	@echo "  docker-pull-models     Pull the full curated project model set into Docker Ollama"
 	@echo "  ollama-ps             Show active Ollama model processor usage"
 	@echo "  gpu-check             Run a long generation and sample GPU + Ollama processor status"
 	@echo "  docker-down            Stop the Docker stack"
@@ -90,13 +93,17 @@ setup:
 	$(PIP) install -e ".[dev]"
 
 test:
-	ALS_DATABASE_URL=$(DB_DSN) ALS_TEST_DATABASE_URL=$(DB_DSN) ALS_MIGRATIONS_DIR=$(CURDIR)/migrations/postgres $(PYTEST) -q
+	ALS_DATABASE_URL=$(TEST_DB_DSN) ALS_TEST_DATABASE_URL=$(TEST_DB_DSN) ALS_MIGRATIONS_DIR=$(CURDIR)/migrations/postgres $(PYTEST) -q
 
 lint:
 	$(PYTHON) -m compileall src tests
 
 init-db:
 	ALS_DATABASE_URL=$(DB_DSN) $(ALS) init-db --db $(DB_DSN)
+
+init-test-db:
+	ALS_DATABASE_URL=$(TEST_DB_DSN) ALS_TEST_DATABASE_URL=$(TEST_DB_DSN) $(PYTHON) -c "from als_intel.db import ensure_database; ensure_database('$(TEST_DB_DSN)')"
+	ALS_DATABASE_URL=$(TEST_DB_DSN) $(ALS) init-db --db $(TEST_DB_DSN)
 
 migrate-from-sqlite:
 	ALS_DATABASE_URL=$(DB_DSN) $(ALS) migrate-from-sqlite --sqlite $(SQLITE_LEGACY) --db $(DB_DSN)
@@ -154,10 +161,28 @@ docker-dev-gpu-up:
 docker-bootstrap:
 	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel init-db
 	$(DOCKER_COMPOSE) exec -T web $(CONTAINER_PYTHON) -m als_intel ingest-jsonl --db $(WEB_DB_DSN) --input $(WEB_SAMPLE_INPUT)
-	$(DOCKER_COMPOSE) exec -T ollama ollama pull $(MODEL)
+	$(MAKE) docker-pull-models
 
 docker-pull-model:
 	$(DOCKER_COMPOSE) exec -T ollama ollama pull $(MODEL)
+
+# Hosts every curated catalog tag from als_intel.model_catalog (can be tens/hundreds of GB).
+# Continues on per-tag failures so one missing registry name does not abort the set.
+docker-pull-models:
+	@echo "Pulling curated project models into Docker Ollama (this can take a long time / lots of disk)..."
+	@tags="$$($(PYTHON) -c 'from als_intel.model_catalog import curated_pull_tags; print(" ".join(curated_pull_tags()))')"; \
+	if [ -z "$$tags" ]; then echo "No curated pull tags found."; exit 1; fi; \
+	failed=0; \
+	for tag in $$tags; do \
+	  echo "---- ollama pull $$tag ----"; \
+	  if $(DOCKER_COMPOSE) exec -T ollama ollama pull $$tag; then \
+	    echo "OK $$tag"; \
+	  else \
+	    echo "WARN: failed to pull $$tag (skipped)"; \
+	    failed=$$((failed + 1)); \
+	  fi; \
+	done; \
+	echo "Curated model pull finished (failures=$$failed). Default chat model remains $(MODEL)."
 
 ollama-ps:
 	$(DOCKER_COMPOSE) exec -T ollama ollama ps
@@ -225,11 +250,11 @@ merge-benchmarks:
 	$(ALS) merge-benchmark-templates --input-path benchmarks/curated --output-dir data/benchmark_curated
 
 test-regression-queries:
-	$(PYTEST) -q tests/test_regression_queries.py
+	ALS_DATABASE_URL=$(TEST_DB_DSN) ALS_TEST_DATABASE_URL=$(TEST_DB_DSN) ALS_MIGRATIONS_DIR=$(CURDIR)/migrations/postgres $(PYTEST) -q tests/test_regression_queries.py
 
 test-extraction-fidelity:
-	$(PYTEST) -q tests/test_extraction_fidelity.py
-	$(ALS) extraction-fidelity-gate
+	ALS_DATABASE_URL=$(TEST_DB_DSN) ALS_TEST_DATABASE_URL=$(TEST_DB_DSN) ALS_MIGRATIONS_DIR=$(CURDIR)/migrations/postgres $(PYTEST) -q tests/test_extraction_fidelity.py
+	ALS_DATABASE_URL=$(TEST_DB_DSN) $(ALS) extraction-fidelity-gate
 
 train-eval-promote:
 	$(ALS) export-finetune-data --db $(DB_DSN) --output-dir data/finetune --min-reliability 0.55 --min-source-reliability 0.6 --val-ratio 0.2 --split-strategy entity_outcome_hash --format messages --min-val-examples 5

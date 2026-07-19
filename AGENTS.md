@@ -56,7 +56,7 @@ flowchart LR
 | Extractors | `src/als_intel/extractors/*` | 15 biomedical source adapters |
 | Agents | `src/als_intel/agents/*` | Literature, skeptic, debate, graph, etc. |
 | Hypothesis | `src/als_intel/hypothesis.py` | Queue ranking, causal gates |
-| LLM / ML | `src/als_intel/llm.py`, `finetune_data.py`, `training.py`, `evaluation.py`, `benchmark*.py` | Ollama chat, fine-tune export, benchmarks |
+| LLM / ML | `src/als_intel/llm.py`, `model_catalog.py`, `finetune_data.py`, `training.py`, `evaluation.py`, `benchmark*.py` | Ollama chat, curated model tiers/Auto, fine-tune export, benchmarks |
 | Auth | `src/als_intel/auth.py` | Magic-link sessions, CSRF |
 
 ### Safe change zones
@@ -100,13 +100,15 @@ make PYTHON=python3.11 test
 
 | Command | Purpose |
 |---------|---------|
-| `make test` | Full pytest suite |
+| `make test` | Full pytest suite (isolated `als_intel_test` DB) |
+| `make init-test-db` | Create/migrate the pytest-only Postgres database |
 | `make lint` | Syntax check (`compileall`) |
 | `make test-regression-queries` | Canonical chat/guardrail regression |
 | `make benchmark-gate` | Validate → merge → evaluate templates |
 | `make benchmark-gate-strict` | Curated benchmark gate (CI strict) |
-| `make docker-up` | Docker stack + DB bootstrap + sample ingest |
+| `make docker-up` | Docker stack + DB bootstrap + curated Ollama model pulls |
 | `make docker-dev-up` | Hot-reload dev stack |
+| `make docker-pull-models` | Pull the full curated project model set into Compose Ollama |
 | `make frontend-build` | Build Vue SPA into `assets/dist/` |
 | `make frontend-dev` | Vite dev server on `:5173` (proxies `/api` to `:8000`) |
 | `make web-dev` | Run API locally on `:8000` (uses `.venv` Python) |
@@ -152,7 +154,8 @@ i18n: source JSON lives in `src/als_intel/i18n/locales/`; sync copies into `fron
 ## Testing
 
 - Framework: **pytest** (installed via `.[dev]`).
-- Postgres required: `ALS_TEST_DATABASE_URL` / `ALS_DATABASE_URL`; `tests/conftest.py` truncates between tests.
+- Postgres required: isolated test DB `als_intel_test` via `ALS_TEST_DATABASE_URL` (default `postgresql://als:als@localhost:5432/als_intel_test`). `tests/conftest.py` truncates **only** that database between tests — never the app DB `als_intel`.
+- Create/migrate the test DB with `make init-test-db` (also auto-created on first pytest via `ensure_database`).
 - Seed via `EvidenceStore()` or inline JSONL. Avoid live network calls in unit tests.
 - Web UI tests: `ThreadingHTTPServer` + `urllib.request` (see `tests/test_webui_api.py`).
 - Update `tests/fixtures/regression_queries.json` only when changing chat/guardrail behavior.
@@ -171,7 +174,9 @@ Do not break regression queries or benchmark gates when modifying chat, guardrai
 Key variables (full list in README):
 
 - `ALS_DATABASE_URL` (or `ALS_PG_*`), `OLLAMA_HOST`, `OLLAMA_MODEL` — DB DSN and LLM
+- `ALS_TEST_DATABASE_URL` — pytest-only DB (default `…/als_intel_test`); must not point at the app DB
 - Optional `ALS_OLLAMA_MODELS` — comma allowlist for `GET /api/models` / Auto picker
+- Model balancing: curated catalog in `model_catalog.py` is the **project-hosted model set** (`curated_pull_tags()`). `make docker-pull-models` / `docker-bootstrap` pulls every curated tag into Compose Ollama (large download; per-tag failures skipped). Catalog enriches installed tags with `tier` / `family` / `display_name`; `GET /api/models` also returns `recommended` for any still-missing curated tags. Auto (`resolve_chat_model`) maps question complexity to tier floors (complex → High/Best when installed; never Fast if a higher tier exists).
 - Chat evidence candidates default to `max(context_limit * 10, 200)` (cap 20000). Override with `ALS_CHAT_EVIDENCE_MAX_ROWS` or request `evidence_max_rows` (>0). Non-positive no longer means unbounded for chat.
 - Legacy one-shot import: `als-intel migrate-from-sqlite --sqlite path/to/als_intel.sqlite`
 - Rollback: there is no dual-engine toggle; restore a prior release plus a SQLite/Postgres backup as appropriate.

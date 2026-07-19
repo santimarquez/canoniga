@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from collections.abc import Iterator
 from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+
+from als_intel.model_catalog import (
+    annotate_installed_model,
+    family_pref,
+    infer_model_size_b,
+    recommended_missing,
+    tier_rank,
+)
 
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -36,26 +43,6 @@ _COMPLEXITY_KEYWORDS = (
     "limitations",
     "validate",
     "replication",
-)
-
-_SIZE_PATTERNS: tuple[tuple[re.Pattern[str], int], ...] = (
-    (re.compile(r"(?:^|[:\-_])70b(?:$|[:\-_])", re.I), 70),
-    (re.compile(r"(?:^|[:\-_])65b(?:$|[:\-_])", re.I), 65),
-    (re.compile(r"(?:^|[:\-_])34b(?:$|[:\-_])", re.I), 34),
-    (re.compile(r"(?:^|[:\-_])33b(?:$|[:\-_])", re.I), 33),
-    (re.compile(r"(?:^|[:\-_])32b(?:$|[:\-_])", re.I), 32),
-    (re.compile(r"(?:^|[:\-_])27b(?:$|[:\-_])", re.I), 27),
-    (re.compile(r"(?:^|[:\-_])22b(?:$|[:\-_])", re.I), 22),
-    (re.compile(r"(?:^|[:\-_])14b(?:$|[:\-_])", re.I), 14),
-    (re.compile(r"(?:^|[:\-_])13b(?:$|[:\-_])", re.I), 13),
-    (re.compile(r"(?:^|[:\-_])12b(?:$|[:\-_])", re.I), 12),
-    (re.compile(r"(?:^|[:\-_])9b(?:$|[:\-_])", re.I), 9),
-    (re.compile(r"(?:^|[:\-_])8b(?:$|[:\-_])", re.I), 8),
-    (re.compile(r"(?:^|[:\-_])7b(?:$|[:\-_])", re.I), 7),
-    (re.compile(r"(?:^|[:\-_])4b(?:$|[:\-_])", re.I), 4),
-    (re.compile(r"(?:^|[:\-_])3b(?:$|[:\-_])", re.I), 3),
-    (re.compile(r"(?:^|[:\-_])2b(?:$|[:\-_])", re.I), 2),
-    (re.compile(r"(?:^|[:\-_])1b(?:$|[:\-_])", re.I), 1),
 )
 
 
@@ -92,7 +79,7 @@ def list_ollama_models(
     allowlist: list[str] | None = None,
     timeout_seconds: int = 10,
 ) -> dict[str, Any]:
-    """Fetch installed Ollama tags and optionally filter by allowlist."""
+    """Fetch installed Ollama tags, enrich with catalog tiers, and list missing recommended."""
     resolved_host = str(host or "http://localhost:11434").rstrip("/")
     resolved_default = str(default_model or "llama3.1:8b").strip() or "llama3.1:8b"
     filters = list(allowlist) if allowlist is not None else parse_model_allowlist()
@@ -105,6 +92,7 @@ def list_ollama_models(
             "host": resolved_host,
             "default": resolved_default,
             "models": [],
+            "recommended": recommended_missing([], limit=12),
             "error": f"Could not reach Ollama at {resolved_host}: {exc}",
         }
 
@@ -115,6 +103,7 @@ def list_ollama_models(
             "host": resolved_host,
             "default": resolved_default,
             "models": [],
+            "recommended": recommended_missing([], limit=12),
             "error": "Ollama /api/tags returned invalid JSON.",
         }
 
@@ -130,35 +119,22 @@ def list_ollama_models(
             size = int(size_raw) if size_raw is not None else None
         except (TypeError, ValueError):
             size = None
-        models.append({"id": name, "name": name, "size": size})
+        models.append(annotate_installed_model(name, size=size))
 
     models.sort(key=lambda item: str(item.get("name", "")).lower())
+    installed_names = [str(item.get("name", "")) for item in models]
+    recommended = [
+        row
+        for row in recommended_missing(installed_names, limit=12)
+        if _allowlist_matches(str(row.get("name", "")), filters)
+    ]
     return {
         "host": resolved_host,
         "default": resolved_default,
         "models": models,
+        "recommended": recommended,
         "error": None,
     }
-
-
-def infer_model_size_b(name: str) -> int:
-    text = str(name or "").strip().lower()
-    for pattern, size in _SIZE_PATTERNS:
-        if pattern.search(text):
-            return size
-    if "gemma2" in text or "gemma-2" in text:
-        return 9
-    if "gemma" in text:
-        return 7
-    if "qwen" in text:
-        return 7
-    if "llama" in text:
-        return 8
-    if "mistral" in text or "mixtral" in text:
-        return 7
-    if "phi" in text:
-        return 3
-    return 5
 
 
 def score_question_complexity(question: str) -> int:
@@ -178,6 +154,57 @@ def score_question_complexity(question: str) -> int:
     return score
 
 
+def _auto_pick_model(names: list[str], *, complexity: int, default_name: str) -> str:
+    """Pick among installed models using catalog tier + complexity (quality floor)."""
+    annotated = [annotate_installed_model(name) for name in names]
+
+    def pick_best(rows: list[dict[str, object]], *, prefer_larger: bool) -> dict[str, object]:
+        def key(row: dict[str, object]) -> tuple:
+            size = infer_model_size_b(str(row.get("name", "")))
+            fam = family_pref(str(row.get("family", "unknown")))
+            name = str(row.get("name", "")).lower()
+            if prefer_larger:
+                # Quality floor: larger first, then known families.
+                return (-size, fam, name)
+            return (fam, -size, name)
+
+        return sorted(rows, key=key)[0]
+
+    if complexity >= 6:
+        # Prefer High/Best; never Fast when a higher tier is installed.
+        eligible = [row for row in annotated if tier_rank(str(row.get("tier"))) >= 2]
+        if not eligible:
+            max_rank = max(tier_rank(str(row.get("tier"))) for row in annotated)
+            eligible = [row for row in annotated if tier_rank(str(row.get("tier"))) == max_rank]
+        return str(pick_best(eligible, prefer_larger=True).get("name", names[0]))
+
+    if complexity >= 3:
+        # Prefer Balanced, else High/Best (skip Fast when anything stronger exists).
+        preferred = [row for row in annotated if tier_rank(str(row.get("tier"))) == 1]
+        if not preferred:
+            preferred = [row for row in annotated if tier_rank(str(row.get("tier"))) >= 1]
+        if not preferred:
+            preferred = annotated
+        return str(pick_best(preferred, prefer_larger=True).get("name", names[0]))
+
+    # Low: prefer Fast, else Balanced (avoid jumping to Best for short questions).
+    preferred = [row for row in annotated if tier_rank(str(row.get("tier"))) == 0]
+    if not preferred:
+        preferred = [row for row in annotated if tier_rank(str(row.get("tier"))) <= 1]
+    if not preferred:
+        preferred = annotated
+    chosen_row = pick_best(preferred, prefer_larger=False)
+    chosen_name = str(chosen_row.get("name", ""))
+    if (
+        default_name in names
+        and tier_rank(str(annotate_installed_model(default_name).get("tier")))
+        <= tier_rank(str(chosen_row.get("tier"))) + 1
+        and infer_model_size_b(default_name) <= infer_model_size_b(chosen_name) + 2
+    ):
+        return default_name
+    return chosen_name
+
+
 def resolve_chat_model(
     question: str,
     *,
@@ -193,23 +220,7 @@ def resolve_chat_model(
         if not names:
             return default_name, "auto"
         complexity = score_question_complexity(question)
-        ranked = sorted(
-            names,
-            key=lambda name: (infer_model_size_b(name), name.lower()),
-        )
-        if complexity >= 6:
-            chosen = ranked[-1]
-        elif complexity >= 3:
-            chosen = ranked[len(ranked) // 2]
-        else:
-            chosen = ranked[0]
-        if (
-            default_name in names
-            and complexity < 3
-            and infer_model_size_b(default_name) <= infer_model_size_b(chosen) + 2
-        ):
-            chosen = default_name
-        return chosen, "auto"
+        return _auto_pick_model(names, complexity=complexity, default_name=default_name), "auto"
     return requested, "manual"
 
 

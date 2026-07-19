@@ -5,11 +5,14 @@ import re
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 import psycopg
+from psycopg import sql
 from psycopg.rows import tuple_row
 
 DEFAULT_DSN = "postgresql://als:als@localhost:5432/als_intel"
+DEFAULT_TEST_DSN = "postgresql://als:als@localhost:5432/als_intel_test"
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations" / "postgres"
 
 _PLACEHOLDER_RE = re.compile(r"\?")
@@ -33,6 +36,30 @@ def resolve_dsn(explicit: str | None = None) -> str:
     password = str(os.getenv("ALS_PG_PASSWORD") or "als")
     sslmode = str(os.getenv("ALS_PG_SSLMODE") or "prefer").strip() or "prefer"
     return f"postgresql://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}"
+
+
+def ensure_database(dsn: str) -> None:
+    """Create the database named in ``dsn`` if it does not already exist.
+
+    Connects to the maintenance database ``postgres`` on the same host.
+    Safe to call repeatedly (no-op when the database exists).
+    """
+    parsed = urlparse(str(dsn).strip())
+    dbname = (parsed.path or "").lstrip("/").split("?")[0].strip()
+    if not dbname:
+        raise ValueError("DSN must include a database name")
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", dbname):
+        raise ValueError(f"Unsafe database name: {dbname!r}")
+
+    admin_dsn = urlunparse(parsed._replace(path="/postgres"))
+    with psycopg.connect(admin_dsn, autocommit=True) as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s",
+            (dbname,),
+        ).fetchone()
+        if exists:
+            return
+        conn.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(dbname)))
 
 
 def qmark_to_pyformat(sql: str) -> str:

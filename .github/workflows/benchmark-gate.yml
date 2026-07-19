@@ -12,7 +12,7 @@ jobs:
     env:
       PYTHON: python
       ALS_DATABASE_URL: postgresql://als:als@localhost:5432/als_intel
-      ALS_TEST_DATABASE_URL: postgresql://als:als@localhost:5432/als_intel
+      ALS_TEST_DATABASE_URL: postgresql://als:als@localhost:5432/als_intel_test
       ALS_MIGRATIONS_DIR: ${{ github.workspace }}/migrations/postgres
 
     services:
@@ -43,6 +43,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+
+      - name: Create isolated test database
+        run: |
+          python -c "from als_intel.db import ensure_database; ensure_database('postgresql://als:als@localhost:5432/als_intel_test')"
+          ALS_DATABASE_URL=postgresql://als:als@localhost:5432/als_intel_test python -m als_intel init-db --db postgresql://als:als@localhost:5432/als_intel_test
 
       - name: Run tests
         run: pytest -q

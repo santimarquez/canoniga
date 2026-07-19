@@ -6,7 +6,9 @@ alwaysApply: false
 
 # Testing
 
-- Tests share Postgres via `ALS_TEST_DATABASE_URL` / `ALS_DATABASE_URL`; `tests/conftest.py` truncates tables between tests.
+- Pytest uses an isolated Postgres DB (`ALS_TEST_DATABASE_URL`, default `postgresql://als:als@localhost:5432/als_intel_test`).
+- `tests/conftest.py` creates that DB if missing and truncates **only** it between tests — never wipe `als_intel` (app data).
+- Create/migrate with `make init-test-db`.
 - Seed data via `EvidenceStore()` or inline JSONL — do not rely on SQLite files.
 - Mirror production imports: `from als_intel...`.
 - Web UI tests: spin `ThreadingHTTPServer`, call endpoints with `urllib.request` (see `test_webui_api.py`).

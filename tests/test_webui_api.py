@@ -24,9 +24,45 @@ _FAKE_MODEL_CATALOG = {
     "host": "http://localhost:11434",
     "default": "test-model",
     "models": [
-        {"id": "test-model", "name": "test-model", "size": 1},
-        {"id": "qwen2.5:14b", "name": "qwen2.5:14b", "size": 2},
-        {"id": "gemma2:2b", "name": "gemma2:2b", "size": 3},
+        {
+            "id": "test-model",
+            "name": "test-model",
+            "size": 1,
+            "tier": "balanced",
+            "family": "unknown",
+            "display_name": "test-model",
+            "installed": True,
+        },
+        {
+            "id": "qwen2.5:14b",
+            "name": "qwen2.5:14b",
+            "size": 2,
+            "tier": "balanced",
+            "family": "qwen",
+            "display_name": "Qwen3 14B",
+            "installed": True,
+        },
+        {
+            "id": "gemma2:2b",
+            "name": "gemma2:2b",
+            "size": 3,
+            "tier": "fast",
+            "family": "gemma",
+            "display_name": "Gemma 2 2B",
+            "installed": True,
+        },
+    ],
+    "recommended": [
+        {
+            "id": "llama3.3:70b",
+            "name": "llama3.3:70b",
+            "size": None,
+            "tier": "best",
+            "family": "llama",
+            "display_name": "Llama 3.3 70B",
+            "installed": False,
+            "ollama_pull": "llama3.3:70b",
+        }
     ],
     "error": None,
 }
@@ -272,6 +308,8 @@ def test_status_filter_search_compare_and_chat_routes(api_server: str) -> None:
     assert models_code == 200
     assert models_data["default"] == "test-model"
     assert any(row["name"] == "qwen2.5:14b" for row in models_data["models"])
+    assert "recommended" in models_data
+    assert any(row.get("installed") is False for row in models_data["recommended"])
 
     filter_code, filter_data = _request_json(
         api_server,

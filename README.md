@@ -124,6 +124,7 @@ For AI-assisted development in Cursor, see [AGENTS.md](AGENTS.md).
 ```bash
 docker compose up -d postgres
 make init-db
+make init-test-db   # isolated pytest DB: als_intel_test
 # or: als-intel init-db
 ```
 
@@ -197,10 +198,16 @@ You can run a small browser-based chat UI with Docker and Ollama.
 docker compose up --build
 ```
 
-2. In a second terminal, pull a local model into the Ollama container once:
+2. Pull the curated project model set into the Ollama container (large download; can take a long time):
 
 ```bash
-docker compose exec ollama ollama pull llama3.1:8b
+make docker-pull-models
+```
+
+Or pull only the default chat model:
+
+```bash
+make docker-pull-model MODEL=llama3.1:8b
 ```
 
 3. Open the website:
@@ -231,7 +238,7 @@ To stop that dev stack:
 make docker-dev-down
 ```
 
-That command starts Postgres, Ollama, and web containers, applies schema migrations, ingests `examples/sample_evidence.jsonl`, and pulls the configured model into Ollama.
+That command starts Postgres, Ollama, and web containers, applies schema migrations, ingests `examples/sample_evidence.jsonl`, and pulls the **full curated Ollama model set** from `als_intel.model_catalog` (Fast through Best tiers). Expect a large disk footprint; failed individual pulls are skipped with a warning. Use `make docker-pull-model MODEL=…` for a single tag.
 
 Compose uses project-scoped container names, so repeated `make docker-up` runs should not collide with prior containers.
 
@@ -276,6 +283,7 @@ Runtime storage is PostgreSQL only (driver: `psycopg`).
 
 - `ALS_DATABASE_URL` (preferred), or `ALS_PG_HOST` / `ALS_PG_PORT` / `ALS_PG_DB` / `ALS_PG_USER` / `ALS_PG_PASSWORD` / `ALS_PG_SSLMODE`
 - Default local DSN: `postgresql://als:als@localhost:5432/als_intel`
+- Test DSN (pytest): `postgresql://als:als@localhost:5432/als_intel_test` via `ALS_TEST_DATABASE_URL` / `make init-test-db`
 - Schema: `make init-db` applies `migrations/postgres/`
 - Legacy import: `make migrate-from-sqlite SQLITE_LEGACY=path/to/als_intel.sqlite`
 - Rollback: restore a previous release and database backup — there is no SQLite runtime toggle in current code

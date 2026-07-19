@@ -133,6 +133,10 @@ def test_list_ollama_models_filters_allowlist() -> None:
     names = [row["name"] for row in catalog["models"]]
     assert names == ["gemma2:9b", "qwen2.5:14b"]
     assert catalog["error"] is None
+    assert catalog["models"][0]["tier"] == "balanced"
+    assert catalog["models"][0]["family"] == "gemma"
+    assert isinstance(catalog["recommended"], list)
+    assert all(row["installed"] is False for row in catalog["recommended"])
 
 
 def test_resolve_chat_model_prefers_larger_for_complex_questions() -> None:
@@ -160,6 +164,22 @@ def test_resolve_chat_model_prefers_larger_for_complex_questions() -> None:
     assert mode_large == "auto"
     assert large == "qwen2.5:14b"
     assert infer_model_size_b("qwen2.5:14b") == 14
+
+
+def test_resolve_chat_model_prefers_high_tier_when_available() -> None:
+    available = ["gemma2:2b", "llama3.1:8b", "llama3.1:70b"]
+    complex_q = (
+        "Compare contradictory mechanistic causal pathways and synthesize "
+        "uncertainty with validation next steps across claim trade-offs."
+    )
+    chosen, mode = resolve_chat_model(
+        complex_q,
+        available=available,
+        default="llama3.1:8b",
+        selection="auto",
+    )
+    assert mode == "auto"
+    assert chosen == "llama3.1:70b"
 
 
 def test_resolve_chat_model_manual_selection() -> None:

@@ -480,16 +480,27 @@ export interface AppConfig {
   authEnabled: boolean
 }
 
+export type ModelTier = 'fast' | 'balanced' | 'high' | 'best'
+
+export type ModelFamily = 'llama' | 'phi' | 'qwen' | 'gemma' | 'mistral' | 'unknown'
+
 export interface OllamaModelInfo {
   id: string
   name: string
   size?: number | null
+  tier?: ModelTier | string
+  family?: ModelFamily | string
+  display_name?: string
+  catalog_id?: string | null
+  installed?: boolean
+  ollama_pull?: string
 }
 
 export interface ModelsResponse {
   host: string
   default: string
   models: OllamaModelInfo[]
+  recommended?: OllamaModelInfo[]
   error?: string | null
 }
 
